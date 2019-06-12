@@ -90,8 +90,15 @@ class CITYSCAPEDataset(MonoDataset):
         cts_focal, baseline = self.get_cityscape_cam_param(folder)
         return baseline
 
-    # def t_folder(self, folder):
-    #     raise NotImplementedError
+    def get_seman(self, folder):
+        seman_path, ins_path = self.get_ins_seman_path(folder)
+        seman_label = np.array(self.loader(seman_path))
+        ins_label = np.array(self.loader(ins_path))
+        pil.fromarray(((seman_label == 1)*255).astype(np.uint8)).show()
+        return seman_label, ins_label
+
+    def check_seman(self):
+        return True
 
 class CITYSCAPERawDataset(CITYSCAPEDataset):
     """KITTI dataset which loads the original velodyne depth maps for ground truth
@@ -114,6 +121,12 @@ class CITYSCAPERawDataset(CITYSCAPEDataset):
             baseline = data['extrinsic']['baseline']
             cts_focal = np.array((data['intrinsic']['fx'], data['intrinsic']['fy'])) # [fx, fy]
         return cts_focal, baseline
+
+    def get_ins_seman_path(self, folder):
+        seman_path = os.path.join(self.data_path, "gtFine", folder + "gtFine_instanceIds" + self.img_ext)
+        ins_path = os.path.join(self.data_path, "gtFine", folder + "gtFine_labelIds" + self.img_ext)
+        return seman_path, ins_path
+
 
     # def t_folder(self, folder):
     #     return folder.split('/')[2][:-1:]

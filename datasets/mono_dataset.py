@@ -15,7 +15,7 @@ from PIL import Image  # using pillow-simd for increased speed
 import torch
 import torch.utils.data as data
 from torchvision import transforms
-
+from additional_util import visualize_img
 
 def pil_loader(path):
     # open path as file to avoid ResourceWarning
@@ -46,7 +46,9 @@ class MonoDataset(data.Dataset):
                  frame_idxs,
                  num_scales,
                  is_train=False,
-                 img_ext='.png'):
+                 img_ext='.png',
+                 require_seman=False
+                 ):
         super(MonoDataset, self).__init__()
 
         self.data_path = data_path
@@ -88,6 +90,7 @@ class MonoDataset(data.Dataset):
                                                interpolation=self.interp)
 
         self.load_depth = self.check_depth()
+        self.load_seman = self.check_seman() and require_seman
 
     def preprocess(self, inputs, color_aug):
         """Resize colour images to the required scales and augment if required
@@ -195,16 +198,19 @@ class MonoDataset(data.Dataset):
             inputs["depth_gt"] = np.expand_dims(depth_gt, 0)
             inputs["depth_gt"] = torch.from_numpy(inputs["depth_gt"].astype(np.float32))
 
+        if self.load_seman:
+            # seman_gt = self.get_seman(folder)
+            raise NotImplementedError
+
         baseline = self.get_baseLine(folder)
         if "s" in self.frame_idxs:
             stereo_T = np.eye(4, dtype=np.float32)
             baseline_sign = -1 if do_flip else 1
             side_sign = -1 if side == "l" else 1
-            stereo_T[0, 3] = side_sign * baseline_sign * baseline
+            stereo_T[0, 3] = side_sign * baseline_sign * baseline / 5.4 # make kitty and cityscape at same scale level
             # stereo_T[0, 3] = side_sign * baseline_sign * 0.1
 
             inputs["stereo_T"] = torch.from_numpy(stereo_T)
-
         return inputs
 
     def get_color(self, folder, frame_index, side, do_flip):
@@ -220,4 +226,10 @@ class MonoDataset(data.Dataset):
         raise NotImplementedError
 
     def get_baseLine(self, folder):
+        raise NotImplementedError
+
+    def get_seman(self, folder):
+        raise NotImplementedError
+
+    def check_seman(self):
         raise NotImplementedError

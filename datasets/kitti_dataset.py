@@ -58,11 +58,14 @@ class KITTIDataset(MonoDataset):
         return K
 
     def get_baseLine(self, folder):
-        baseline = 0.1
+        baseline = 0.54
         return baseline
 
-    # def get_img_size(self, folder):
-    #     return self.width, self.height
+    def get_seman(self, folder):
+        raise ValueError
+
+    def check_seman(self):
+        return False
 
 
 class KITTIRAWDataset(KITTIDataset):
