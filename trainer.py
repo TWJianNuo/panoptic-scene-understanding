@@ -24,6 +24,7 @@ from layers import *
 import datasets
 import networks
 from IPython import embed
+from utils import my_Sampler
 
 
 class Trainer:
@@ -107,40 +108,41 @@ class Trainer:
         print("Models and tensorboard events files are saved to:\n  ", self.opt.log_dir)
         print("Training is using:\n  ", self.device)
 
+        self.set_dataset()
         # data
-        datasets_dict = {
-            "kitti": datasets.KITTIRAWDataset,
-            "kitti_odom": datasets.KITTIOdomDataset,
-            "cityscape": datasets.CITYSCAPERawDataset
-                         }
-        self.dataset = datasets_dict[self.opt.dataset]
-
-        fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, "{}_files.txt")
-
-        train_filenames = readlines(fpath.format("train"))
-        val_filenames = readlines(fpath.format("val"))
-        img_ext = '.png' if self.opt.png else '.jpg'
-
-        num_train_samples = len(train_filenames)
-        self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
-
-        train_dataset = self.dataset(
-            self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, 4, is_train=True, img_ext=img_ext, require_seman=self.opt.require_semantic)
-        self.train_loader = DataLoader(
-            train_dataset, self.opt.batch_size, True,
-            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
-        val_dataset = self.dataset(
-            self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, 4, is_train=False, img_ext=img_ext)
-        self.val_loader = DataLoader(
-            val_dataset, self.opt.batch_size, True,
-            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
-        self.val_iter = iter(self.val_loader)
+        # datasets_dict = {
+        #     "kitti": datasets.KITTIRAWDataset,
+        #     "kitti_odom": datasets.KITTIOdomDataset,
+        #     "cityscape": datasets.CITYSCAPERawDataset
+        #                  }
+        # self.dataset = datasets_dict[self.opt.dataset]
+        #
+        # fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, "{}_files.txt")
+        #
+        # train_filenames = readlines(fpath.format("train"))
+        # val_filenames = readlines(fpath.format("val"))
+        # img_ext = '.png' if self.opt.png else '.jpg'
+        #
+        # num_train_samples = len(train_filenames)
+        # self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
+        #
+        # train_dataset = self.dataset(
+        #     self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
+        #     self.opt.frame_ids, 4, tag=self.opt.dataset, is_train=True, img_ext=img_ext, require_seman=self.opt.require_semantic)
+        # self.train_loader = DataLoader(
+        #     train_dataset, self.opt.batch_size, True,
+        #     num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
+        # val_dataset = self.dataset(
+        #     self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
+        #     self.opt.frame_ids, 4, tag=self.opt.dataset, is_train=False, img_ext=img_ext)
+        # self.val_loader = DataLoader(
+        #     val_dataset, self.opt.batch_size, True,
+        #     num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
+        # self.val_iter = iter(self.val_loader)
 
         # Change height and weight accordingly
-        self.opt.height = train_dataset.height
-        self.opt.width = train_dataset.width
+        # self.opt.height = train_dataset.height
+        # self.opt.width = train_dataset.width
 
         self.writers = {}
         for mode in ["train", "val"]:
@@ -150,27 +152,106 @@ class Trainer:
             self.ssim = SSIM()
             self.ssim.to(self.device)
 
-        self.backproject_depth = {}
-        self.project_3d = {}
-        for scale in self.opt.scales:
-            h = self.opt.height // (2 ** scale)
-            w = self.opt.width // (2 ** scale)
-
-            self.backproject_depth[scale] = BackprojectDepth(self.opt.batch_size, h, w)
-            self.backproject_depth[scale].to(self.device)
-
-            self.project_3d[scale] = Project3D(self.opt.batch_size, h, w)
-            self.project_3d[scale].to(self.device)
+        self.set_layers()
+        # self.backproject_depth = {}
+        # self.project_3d = {}
+        # for scale in self.opt.scales:
+        #     h = self.opt.height // (2 ** scale)
+        #     w = self.opt.width // (2 ** scale)
+        #
+        #     self.backproject_depth[scale] = BackprojectDepth(self.opt.batch_size, h, w)
+        #     self.backproject_depth[scale].to(self.device)
+        #
+        #     self.project_3d[scale] = Project3D(self.opt.batch_size, h, w)
+        #     self.project_3d[scale].to(self.device)
 
         self.depth_metric_names = [
             "de/abs_rel", "de/sq_rel", "de/rms", "de/log_rms", "da/a1", "da/a2", "da/a3"]
 
         print("Using split:\n  ", self.opt.split)
         print("There are {:d} training items and {:d} validation items\n".format(
-            len(train_dataset), len(val_dataset)))
+            self.train_num, self.val_num))
 
         self.save_opts()
 
+    def set_layers(self):
+        """properly handle layer initialization under multiple dataset situation
+        """
+        self.backproject_depth = {}
+        self.project_3d = {}
+        tags = list()
+        for t in self.format:
+            tags.append(t[0])
+        for p, tag in enumerate(tags):
+            height = self.format[p][1]
+            width = self.format[p][2]
+            for n, scale in enumerate(self.opt.scales):
+                h = height // (2 ** scale)
+                w = width // (2 ** scale)
+
+                self.backproject_depth[(tag, scale)] = BackprojectDepth(self.opt.batch_size, h, w)
+                self.backproject_depth[(tag, scale)].to(self.device)
+
+                self.project_3d[(tag, scale)] = Project3D(self.opt.batch_size, h, w)
+                self.project_3d[(tag, scale)].to(self.device)
+
+    def set_dataset(self):
+        """properly handle multiple dataset situation
+        """
+        datasets_dict = {
+            "kitti": datasets.KITTIRAWDataset,
+            "kitti_odom": datasets.KITTIOdomDataset,
+            "cityscape": datasets.CITYSCAPERawDataset,
+            "joint": datasets.JointDataset
+                         }
+        dataset_set = self.opt.dataset.split('+')
+        split_set = self.opt.split.split('+')
+        datapath_set = self.opt.data_path.split('+')
+        assert len(dataset_set) == len(split_set), "dataset and split should have same number"
+        stacked_train_datasets = list()
+        stacked_val_datasets = list()
+        train_sample_num = np.zeros(len(dataset_set), dtype=np.int)
+        val_sample_num = np.zeros(len(dataset_set), dtype=np.int)
+        for i, d in enumerate(dataset_set):
+            initFunc = datasets_dict[d]
+            fpath = os.path.join(os.path.dirname(__file__), "splits", split_set[i], "{}_files.txt")
+            train_filenames = readlines(fpath.format("train"))
+            val_filenames = readlines(fpath.format("val"))
+            img_ext = '.png' if self.opt.png else '.jpg'
+
+            train_dataset = initFunc(
+                datapath_set[i], train_filenames, self.opt.height, self.opt.width,
+                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=True, img_ext=img_ext,
+                require_seman=self.opt.require_semantic)
+            train_sample_num[i] = train_dataset.__len__()
+            stacked_train_datasets.append(train_dataset)
+
+            val_dataset = initFunc(
+                datapath_set[i], val_filenames, self.opt.height, self.opt.width,
+                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=False, img_ext=img_ext)
+            val_sample_num[i] = val_dataset.__len__()
+            stacked_val_datasets.append(val_dataset)
+
+        initFunc = datasets_dict['joint']
+        joint_dataset_train = initFunc(stacked_train_datasets)
+        joint_dataset_val = initFunc(stacked_val_datasets)
+
+        trainSample = my_Sampler(train_sample_num, self.opt.batch_size)
+        valSample = my_Sampler(val_sample_num, self.opt.batch_size)
+
+        self.train_loader = DataLoader(
+            joint_dataset_train, self.opt.batch_size, shuffle=False, sampler=trainSample,
+            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
+        self.val_loader = DataLoader(
+            joint_dataset_val, self.opt.batch_size, shuffle=False, sampler=valSample,
+            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
+        self.val_iter = iter(self.val_loader)
+
+        num_train_samples = joint_dataset_train.__len__()
+        self.train_num = joint_dataset_train.__len__()
+        self.val_num = joint_dataset_val.__len__()
+        self.format = joint_dataset_train.format
+        self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
     def set_train(self):
         """Convert all models to training mode
         """
@@ -228,12 +309,14 @@ class Trainer:
                 self.val()
 
             self.step += 1
+        a = 1
 
     def process_batch(self, inputs):
         """Pass a minibatch through the network and generate images and losses
         """
         for key, ipt in inputs.items():
-            inputs[key] = ipt.to(self.device)
+            if not(key == 'height' or key == 'width' or key == 'tag'):
+                inputs[key] = ipt.to(self.device)
 
         if self.opt.pose_model_type == "shared":
             # If we are using a shared encoder for both depth and pose (as advocated
@@ -346,13 +429,17 @@ class Trainer:
         """Generate the warped (reprojected) color images for a minibatch.
         Generated images are saved into the `outputs` dictionary.
         """
+        tag = inputs['tag'][0]
+        height = inputs["height"][0]
+        width = inputs["width"][0]
         for scale in self.opt.scales:
             disp = outputs[("disp", scale)]
             if self.opt.v1_multiscale:
                 source_scale = scale
             else:
-                disp = F.interpolate(
-                    disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
+                # disp = F.interpolate(
+                #     disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
+                disp = F.interpolate(disp, [height, width], mode="bilinear", align_corners=False)
                 source_scale = 0
 
             _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
@@ -378,9 +465,9 @@ class Trainer:
                     T = transformation_from_parameters(
                         axisangle[:, 0], translation[:, 0] * mean_inv_depth[:, 0], frame_id < 0)
 
-                cam_points = self.backproject_depth[source_scale](
+                cam_points = self.backproject_depth[(tag, source_scale)](
                     depth, inputs[("inv_K", source_scale)])
-                pix_coords = self.project_3d[source_scale](
+                pix_coords = self.project_3d[(tag, source_scale)](
                     cam_points, inputs[("K", source_scale)], T)
 
                 outputs[("sample", frame_id, scale)] = pix_coords
@@ -452,10 +539,12 @@ class Trainer:
                 # use the predicted mask
                 mask = outputs["predictive_mask"]["disp", scale]
                 if not self.opt.v1_multiscale:
+                    # mask = F.interpolate(
+                    #     mask, [self.opt.height, self.opt.width],
+                    #     mode="bilinear", align_corners=False)
                     mask = F.interpolate(
-                        mask, [self.opt.height, self.opt.width],
+                        mask, [inputs["height"], inputs["width"]],
                         mode="bilinear", align_corners=False)
-
                 reprojection_losses *= mask
 
                 # add a loss pushing mask to 1 (using nn.BCELoss for stability)

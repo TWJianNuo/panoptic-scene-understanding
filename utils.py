@@ -9,10 +9,14 @@ import os
 import hashlib
 import zipfile
 import numpy as np
+import torch
 from six.moves import urllib
 from scipy.interpolate import RectBivariateSpline
 import matplotlib.pyplot as plt
 from globalInfo import acGInfo
+from torch.utils.data.sampler import Sampler
+from random import shuffle
+
 def readlines(filename):
     """Read all the lines in a text file and return as a list
     """
@@ -224,3 +228,32 @@ def diffICP(depthMap, pts3d, intrinsic, extrinsic, svInd = 0):
     plt.close(fig)
     return validMask, affM
     # plt.show()
+
+class my_Sampler(Sampler):
+    def __init__(self, nums, batch_num):
+        self.batch_num = batch_num
+        self.nums = nums
+        # init iter
+        self.iter_list = list()
+        for i, num in enumerate(self.nums):
+            bot_num = np.sum(self.nums[0:i])
+            top_num = np.sum(self.nums[0:i+1])
+            indices = list(range(bot_num, top_num))
+            shuffle(indices)
+            for k in range(np.int(np.floor(len(indices) / self.batch_num))):
+                self.iter_list.append(indices[k * self.batch_num : (k+1) * self.batch_num])
+        self.num_samples = self.batch_num * len(self.iter_list)
+
+    def __iter__(self):
+        # shuffle when called
+        shuffle(self.iter_list)
+        iterIndex = list()
+        for i in self.iter_list:
+            iterIndex = iterIndex + i
+        assert len(iterIndex) == np.unique(np.array(iterIndex)).shape[0], "iter error"
+        # print ('\tcalling Sampler:__iter__')
+        return iter(iterIndex )
+
+    def __len__(self):
+        # print ('\tcalling Sampler:__len__')
+        return self.num_samples

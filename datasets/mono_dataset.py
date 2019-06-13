@@ -45,6 +45,7 @@ class MonoDataset(data.Dataset):
                  width,
                  frame_idxs,
                  num_scales,
+                 tag,
                  is_train=False,
                  img_ext='.png',
                  require_seman=False
@@ -65,6 +66,7 @@ class MonoDataset(data.Dataset):
 
         self.loader = pil_loader
         self.to_tensor = transforms.ToTensor()
+        self.tag = tag
 
         # We need to specify augmentations differently in newer versions of torchvision.
         # We first try the newer tuple version; if this fails we fall back to scalars
@@ -211,6 +213,11 @@ class MonoDataset(data.Dataset):
             # stereo_T[0, 3] = side_sign * baseline_sign * 0.1
 
             inputs["stereo_T"] = torch.from_numpy(stereo_T)
+
+        # additional info
+        inputs["height"] = self.height
+        inputs["width"] = self.width
+        inputs["tag"] = self.tag
         return inputs
 
     def get_color(self, folder, frame_index, side, do_flip):
