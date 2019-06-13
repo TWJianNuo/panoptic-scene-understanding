@@ -29,7 +29,7 @@ class CITYSCAPEDataset(MonoDataset):
         self.downR = 32 # downsample ratio between input img and feature map
         self.kitti_uf = np.array((0.58, 1.92)) # [kitti unit focal x per pixel, kitti unit focal y per pixel]
         self.full_res_shape = (2048, 1024) # decide to use 512 by 256
-        self.side_map = {"l": "leftImg8bit", "r": "rightImg8bit"}
+        self.side_map = {"r": "leftImg8bit", "l": "rightImg8bit"}
         self.change_resize()
         # self.ctsImg_sz_rec = dict()
 
