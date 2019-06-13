@@ -114,8 +114,8 @@ class CITYSCAPERawDataset(CITYSCAPEDataset):
         return None
 
     def get_cityscape_cam_param(self, folder):
-        camName = os.path.join("camera_trainvaltest", "camera")
-        k_path = os.path.join(self.data_path, camName, folder + "camera.json")
+        # camName = os.path.join("camera_trainvaltest", "camera")
+        k_path = os.path.join(self.data_path, "camera", folder + "camera.json")
         with open(k_path) as json_file:
             data = json.load(json_file)
             baseline = data['extrinsic']['baseline']
