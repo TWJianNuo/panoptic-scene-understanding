@@ -138,16 +138,16 @@ class MonodepthOptions:
                                  help="pretrained or scratch",
                                  default="pretrained",
                                  choices=["pretrained", "scratch"])
-        self.parser.add_argument("--pose_model_input",
-                                 type=str,
-                                 help="how many images the pose network gets",
-                                 default="pairs",
-                                 choices=["pairs", "all"])
-        self.parser.add_argument("--pose_model_type",
-                                 type=str,
-                                 help="normal or shared",
-                                 default="separate_resnet",
-                                 choices=["posecnn", "separate_resnet", "shared"])
+        # self.parser.add_argument("--pose_model_input",
+        #                          type=str,
+        #                          help="how many images the pose network gets",
+        #                          default="pairs",
+        #                          choices=["pairs", "all"])
+        # self.parser.add_argument("--pose_model_type",
+        #                          type=str,
+        #                          help="normal or shared",
+        #                          default="separate_resnet",
+        #                          choices=["posecnn", "separate_resnet", "shared"])
 
         # SYSTEM options
         self.parser.add_argument("--no_cuda",

@@ -43,11 +43,11 @@ class Trainer:
 
         self.num_scales = len(self.opt.scales)
         self.num_input_frames = len(self.opt.frame_ids)
-        self.num_pose_frames = 2 if self.opt.pose_model_input == "pairs" else self.num_input_frames
+        # self.num_pose_frames = 2 if self.opt.pose_model_input == "pairs" else self.num_input_frames
 
         assert self.opt.frame_ids[0] == 0, "frame_ids must start with 0"
 
-        self.use_pose_net = not (self.opt.use_stereo and self.opt.frame_ids == [0])
+        # self.use_pose_net = not (self.opt.use_stereo and self.opt.frame_ids == [0])
 
         if self.opt.use_stereo:
             self.opt.frame_ids.append("s")
@@ -62,31 +62,31 @@ class Trainer:
         self.models["depth"].to(self.device)
         self.parameters_to_train += list(self.models["depth"].parameters())
 
-        if self.use_pose_net:
-            if self.opt.pose_model_type == "separate_resnet":
-                self.models["pose_encoder"] = networks.ResnetEncoder(
-                    self.opt.num_layers,
-                    self.opt.weights_init == "pretrained",
-                    num_input_images=self.num_pose_frames)
-
-                self.models["pose_encoder"].to(self.device)
-                self.parameters_to_train += list(self.models["pose_encoder"].parameters())
-
-                self.models["pose"] = networks.PoseDecoder(
-                    self.models["pose_encoder"].num_ch_enc,
-                    num_input_features=1,
-                    num_frames_to_predict_for=2)
-
-            elif self.opt.pose_model_type == "shared":
-                self.models["pose"] = networks.PoseDecoder(
-                    self.models["encoder"].num_ch_enc, self.num_pose_frames)
-
-            elif self.opt.pose_model_type == "posecnn":
-                self.models["pose"] = networks.PoseCNN(
-                    self.num_input_frames if self.opt.pose_model_input == "all" else 2)
-
-            self.models["pose"].to(self.device)
-            self.parameters_to_train += list(self.models["pose"].parameters())
+        # if self.use_pose_net:
+        #     if self.opt.pose_model_type == "separate_resnet":
+        #         self.models["pose_encoder"] = networks.ResnetEncoder(
+        #             self.opt.num_layers,
+        #             self.opt.weights_init == "pretrained",
+        #             num_input_images=self.num_pose_frames)
+        #
+        #         self.models["pose_encoder"].to(self.device)
+        #         self.parameters_to_train += list(self.models["pose_encoder"].parameters())
+        #
+        #         self.models["pose"] = networks.PoseDecoder(
+        #             self.models["pose_encoder"].num_ch_enc,
+        #             num_input_features=1,
+        #             num_frames_to_predict_for=2)
+        #
+        #     elif self.opt.pose_model_type == "shared":
+        #         self.models["pose"] = networks.PoseDecoder(
+        #             self.models["encoder"].num_ch_enc, self.num_pose_frames)
+        #
+        #     elif self.opt.pose_model_type == "posecnn":
+        #         self.models["pose"] = networks.PoseCNN(
+        #             self.num_input_frames if self.opt.pose_model_input == "all" else 2)
+        #
+        #     self.models["pose"].to(self.device)
+        #     self.parameters_to_train += list(self.models["pose"].parameters())
 
         if self.opt.predictive_mask:
             # Our implementation of the predictive masking baseline has the the same architecture
@@ -309,7 +309,6 @@ class Trainer:
                 self.val()
 
             self.step += 1
-        a = 1
 
     def process_batch(self, inputs):
         """Pass a minibatch through the network and generate images and losses
@@ -318,37 +317,37 @@ class Trainer:
             if not(key == 'height' or key == 'width' or key == 'tag'):
                 inputs[key] = ipt.to(self.device)
 
-        if self.opt.pose_model_type == "shared":
-            # If we are using a shared encoder for both depth and pose (as advocated
-            # in monodepthv1), then all images are fed separately through the depth encoder.
-            all_color_aug = torch.cat([inputs[("color_aug", i, 0)] for i in self.opt.frame_ids])
-            all_features = self.models["encoder"](all_color_aug)
-            all_features = [torch.split(f, self.opt.batch_size) for f in all_features]
+        # if self.opt.pose_model_type == "shared":
+        #     all_color_aug = torch.cat([inputs[("color_aug", i, 0)] for i in self.opt.frame_ids])
+        #     all_features = self.models["encoder"](all_color_aug)
+        #     all_features = [torch.split(f, self.opt.batch_size) for f in all_features]
+        #
+        #     features = {}
+        #     for i, k in enumerate(self.opt.frame_ids):
+        #         features[k] = [f[i] for f in all_features]
+        #
+        #     outputs = self.models["depth"](features[0])
+        # else:
+        #     features = self.models["encoder"](inputs["color_aug", 0, 0])
+        #     outputs = self.models["depth"](features)
 
-            features = {}
-            for i, k in enumerate(self.opt.frame_ids):
-                features[k] = [f[i] for f in all_features]
 
-            outputs = self.models["depth"](features[0])
-        else:
-            # Otherwise, we only feed the image with frame_id 0 through the depth encoder
-            features = self.models["encoder"](inputs["color_aug", 0, 0])
-            outputs = self.models["depth"](features)
+        features = self.models["encoder"](inputs["color_aug", 0, 0])
+        outputs = self.models["depth"](features)
 
         if self.opt.predictive_mask:
             outputs["predictive_mask"] = self.models["predictive_mask"](features)
 
-        if self.use_pose_net:
-            outputs.update(self.predict_poses(inputs, features))
+        # if self.use_pose_net:
+        #     outputs.update(self.predict_poses(inputs, features))
 
         self.generate_images_pred(inputs, outputs)
         losses = self.compute_losses(inputs, outputs)
 
         return outputs, losses
 
+    """
     def predict_poses(self, inputs, features):
-        """Predict poses between input frames for monocular sequences.
-        """
         outputs = {}
         if self.num_pose_frames == 2:
             # In this setting, we compute the pose to each source frame via a
@@ -403,6 +402,7 @@ class Trainer:
                         axisangle[:, i], translation[:, i])
 
         return outputs
+    """
 
     def val(self):
         """Validate the model on a single minibatch
@@ -453,17 +453,17 @@ class Trainer:
                 else:
                     T = outputs[("cam_T_cam", 0, frame_id)]
 
-                # from the authors of https://arxiv.org/abs/1712.00175
-                if self.opt.pose_model_type == "posecnn":
 
-                    axisangle = outputs[("axisangle", 0, frame_id)]
-                    translation = outputs[("translation", 0, frame_id)]
-
-                    inv_depth = 1 / depth
-                    mean_inv_depth = inv_depth.mean(3, True).mean(2, True)
-
-                    T = transformation_from_parameters(
-                        axisangle[:, 0], translation[:, 0] * mean_inv_depth[:, 0], frame_id < 0)
+                # if self.opt.pose_model_type == "posecnn":
+                #
+                #     axisangle = outputs[("axisangle", 0, frame_id)]
+                #     translation = outputs[("translation", 0, frame_id)]
+                #
+                #     inv_depth = 1 / depth
+                #     mean_inv_depth = inv_depth.mean(3, True).mean(2, True)
+                #
+                #     T = transformation_from_parameters(
+                #         axisangle[:, 0], translation[:, 0] * mean_inv_depth[:, 0], frame_id < 0)
 
                 cam_points = self.backproject_depth[(tag, source_scale)](
                     depth, inputs[("inv_K", source_scale)])
