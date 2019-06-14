@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 from globalInfo import acGInfo
 from torch.utils.data.sampler import Sampler
 from random import shuffle
+import PIL.Image as pil
 
 def readlines(filename):
     """Read all the lines in a text file and return as a list
@@ -257,3 +258,13 @@ class my_Sampler(Sampler):
     def __len__(self):
         # print ('\tcalling Sampler:__len__')
         return self.num_samples
+
+
+def visualize_outpu(inputs, outputs, sv_path, sv_ind):
+    for picind in range(inputs[('color', 0, 0)].shape[0]):
+        c_sv_path = os.path.join(sv_path, str(sv_ind) + "_" + str(picind) + ".png")
+        img1 = inputs[('color', 's', 0)].permute(0, 2, 3, 1)[picind, :, :, :].clone().detach().cpu().numpy()
+        img2 = outputs[('color', 's', 0)].permute(0, 2, 3, 1)[picind, :, :, :].clone().detach().cpu().numpy()
+        img3 = inputs[('color', 0, 0)].permute(0, 2, 3, 1)[picind, :, :, :].clone().detach().cpu().numpy()
+        combined_img = np.concatenate((img1, img2, img3), axis=0)
+        pil.fromarray((combined_img * 255).astype(np.uint8)).save(c_sv_path)

@@ -476,7 +476,7 @@ class Trainer:
                     inputs[("color", frame_id, source_scale)],
                     outputs[("sample", frame_id, scale)],
                     padding_mode="border")
-
+                # visualize_outpu(inputs, outputs, '/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/recon_rg_img/kitti', np.random.randint(0, 100000, 1)[0])
                 if not self.opt.disable_automasking:
                     outputs[("color_identity", frame_id, scale)] = \
                         inputs[("color", frame_id, source_scale)]

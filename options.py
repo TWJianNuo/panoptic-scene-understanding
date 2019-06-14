@@ -162,12 +162,16 @@ class MonodepthOptions:
         self.parser.add_argument("--load_weights_folder",
                                  type=str,
                                  help="name of model to load")
+        # self.parser.add_argument("--models_to_load",
+        #                          nargs="+",
+        #                          type=str,
+        #                          help="models to load",
+        #                          default=["encoder", "depth", "pose_encoder", "pose"])
         self.parser.add_argument("--models_to_load",
                                  nargs="+",
                                  type=str,
                                  help="models to load",
-                                 default=["encoder", "depth", "pose_encoder", "pose"])
-
+                                 default=["encoder", "depth"])
         # LOGGING options
         self.parser.add_argument("--log_frequency",
                                  type=int,

@@ -204,13 +204,14 @@ class MonoDataset(data.Dataset):
             # seman_gt = self.get_seman(folder)
             raise NotImplementedError
 
-        baseline = self.get_baseLine(folder)
+        # baseline = self.get_baseLine(folder)
+        rescale_fac = self.get_rescaleFac(folder)
         if "s" in self.frame_idxs:
             stereo_T = np.eye(4, dtype=np.float32)
             baseline_sign = -1 if do_flip else 1
             side_sign = -1 if side == "l" else 1
-            stereo_T[0, 3] = side_sign * baseline_sign * baseline / 5.4 # make kitty and cityscape at same scale level
-            # stereo_T[0, 3] = side_sign * baseline_sign * 0.1
+            # stereo_T[0, 3] = side_sign * baseline_sign * baseline / 5.4
+            stereo_T[0, 3] = side_sign * baseline_sign * 0.1 * rescale_fac
 
             inputs["stereo_T"] = torch.from_numpy(stereo_T)
 
@@ -232,7 +233,7 @@ class MonoDataset(data.Dataset):
     def get_K(self, folder):
         raise NotImplementedError
 
-    def get_baseLine(self, folder):
+    def get_rescaleFac(self, folder):
         raise NotImplementedError
 
     def get_seman(self, folder):

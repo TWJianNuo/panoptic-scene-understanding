@@ -15,6 +15,7 @@ from kitti_utils import generate_depth_map
 from .mono_dataset import MonoDataset
 from torchvision import transforms
 import json
+import copy
 
 
 class CITYSCAPEDataset(MonoDataset):
@@ -29,7 +30,7 @@ class CITYSCAPEDataset(MonoDataset):
         self.downR = 32 # downsample ratio between input img and feature map
         self.kitti_uf = np.array((0.58, 1.92)) # [kitti unit focal x per pixel, kitti unit focal y per pixel]
         self.full_res_shape = (2048, 1024) # decide to use 512 by 256
-        self.side_map = {"r": "leftImg8bit", "l": "rightImg8bit"}
+        self.side_map = {"l": "leftImg8bit", "r": "rightImg8bit"}
         self.change_resize()
         # self.ctsImg_sz_rec = dict()
 
@@ -57,6 +58,7 @@ class CITYSCAPEDataset(MonoDataset):
         targ_f = self.kitti_uf * np.array((self.width, self.height))
         re_size = np.round(self.full_res_shape / cts_focal * targ_f).astype(np.int)
         re_size = (np.round(re_size / self.downR) * self.downR).astype(np.int)
+        self.org_width = copy.copy(self.width)
         self.width = re_size[0].item()
         self.height = re_size[1].item()
 
@@ -86,9 +88,13 @@ class CITYSCAPEDataset(MonoDataset):
         # if ck not in self.ctsImg_sz_rec.keys():
         #     self.ctsImg_sz_rec[ck] = re_size
         return K
-    def get_baseLine(self, folder):
-        cts_focal, baseline = self.get_cityscape_cam_param(folder)
-        return baseline
+    def get_rescaleFac(self, folder):
+        cts_focal, cts_baseline = self.get_cityscape_cam_param(folder)
+        kitti_baseline = 0.54
+        kitti_unit_focal = 0.58
+        cts_unit_focal = cts_focal[0] / self.full_res_shape[0]
+        rescale_fac = (cts_baseline * cts_unit_focal * self.width) / (kitti_baseline * kitti_unit_focal * self.org_width)
+        return rescale_fac
 
     def get_seman(self, folder):
         seman_path, ins_path = self.get_ins_seman_path(folder)

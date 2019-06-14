@@ -57,9 +57,9 @@ class KITTIDataset(MonoDataset):
                       [0, 0, 0, 1]], dtype=np.float32)
         return K
 
-    def get_baseLine(self, folder):
-        baseline = 0.54
-        return baseline
+    def get_rescaleFac(self, folder):
+        rescale_fac = 1
+        return rescale_fac
 
     def get_seman(self, folder):
         raise ValueError

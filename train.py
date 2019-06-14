@@ -8,6 +8,9 @@ from __future__ import absolute_import, division, print_function
 
 from trainer import Trainer
 from options import MonodepthOptions
+import warnings
+warnings.filterwarnings("ignore")
+
 
 options = MonodepthOptions()
 opts = options.parse()
