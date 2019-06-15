@@ -1,9 +1,8 @@
-from collections import namedtuple
 import os
 import shutil
 import errno
-from additional_util.cityscapesscripts.preparation.createTrainIdInstanceImgs import createTrainIdInstanceImgs
-from additional_util.cityscapesscripts.preparation.createTrainIdLabelImgs import createTrainIdLabelImgs
+from cityscapesscripts.preparation.createTrainIdInstanceImgs import createTrainIdInstanceImgs
+from cityscapesscripts.preparation.createTrainIdLabelImgs import createTrainIdLabelImgs
 # import cityscapesscripts.preparation.createTrainIdInstanceImgs
 # from cityscapesscripts.preparation.createTrainIdInstanceImgs import createTrainIdInstanceImgs
 # from cityscapesscripts.preparation import createTrainIdLabelImgs
