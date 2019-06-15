@@ -90,13 +90,9 @@ class MonodepthOptions:
                                  type=int,
                                  help="frames to load",
                                  default=[0, -1, 1])
-        self.parser.add_argument("--require_semantic",
+        self.parser.add_argument("--train_semantric",
                                  type=bool,
-                                 help="load semantic info or not",
-                                 default=False)
-        self.parser.add_argument("--joint",
-                                 type=bool,
-                                 help="load semantic info or not",
+                                 help="train semantic or not",
                                  default=False)
 
         # OPTIMIZATION options
