@@ -68,7 +68,7 @@ class DepthDecoder(nn.Module):
         self.sigmoid = nn.Sigmoid()
         self.sfx = nn.Softmax()
 
-    def forward(self, input_features):
+    def forward(self, input_features, computeSemantic = False):
         self.outputs = {}
 
         # decoder
@@ -84,14 +84,14 @@ class DepthDecoder(nn.Module):
             x = self.convs[("upconv", i, 1)](x)
             if i in self.scales:
                 self.outputs[("disp", i)] = self.sigmoid(self.convs[("dispconv", i)](x))
-
-        for i in range(self.semanticScale, -1, -1):
-            y = self.convs[("upconv_seman", i, 0)](y)
-            y = [upsample(y)]
-            if self.use_skips and i > 0:
-                y += [input_features[i - 1]]
-            y = torch.cat(y, 1)
-            y = self.convs[("upconv_seman", i, 1)](y)
-            if i in range(self.semanticScale):
-                self.outputs[("seman", i)] = self.sfx(self.convs[("semanconv", i)](y))
+        if computeSemantic:
+            for i in range(self.semanticScale, -1, -1):
+                y = self.convs[("upconv_seman", i, 0)](y)
+                y = [upsample(y)]
+                if self.use_skips and i > 0:
+                    y += [input_features[i - 1]]
+                y = torch.cat(y, 1)
+                y = self.convs[("upconv_seman", i, 1)](y)
+                if i in range(self.semanticScale):
+                    self.outputs[("seman", i)] = self.sfx(self.convs[("semanconv", i)](y))
         return self.outputs

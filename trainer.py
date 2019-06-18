@@ -341,7 +341,10 @@ class Trainer:
 
 
         features = self.models["encoder"](inputs["color_aug", 0, 0])
-        outputs = self.models["depth"](features)
+        if 'seman_gt' in inputs:
+            outputs = self.models["depth"](features, computeSemantic = True)
+        else:
+            outputs = self.models["depth"](features, computeSemantic = False)
         # semantic_output = self.models["semantic"](features)
         # for entry in semantic_output:
         #     outputs[entry] = semantic_output[entry]
@@ -595,13 +598,14 @@ class Trainer:
             loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
             total_loss += loss
             losses["loss_depth/{}".format(scale)] = loss
+        total_loss = total_loss / self.num_scales
+        losses["loss_depth"] = total_loss
         if 'seman_gt' in inputs:
             loss_seman, loss_semantoshow = self.semanticLoss(inputs, outputs) # semantic loss is scaled already
             for entry in loss_semantoshow:
                 losses[entry] = loss_semantoshow[entry]
-            total_loss = total_loss / self.num_scales + self.semanticCoeff * loss_seman
-        else:
-            total_loss = total_loss / self.num_scales
+            total_loss = total_loss + self.semanticCoeff * loss_seman
+            losses["loss_semantic"] = loss_seman
         losses["loss"] = total_loss
         return losses
 
