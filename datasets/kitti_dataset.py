@@ -12,10 +12,10 @@ import numpy as np
 import PIL.Image as pil
 
 from kitti_utils import generate_depth_map
-from .mono_dataset import MonoDataset
+from .SingleDataset import SingleDataset
 
 
-class KITTIDataset(MonoDataset):
+class KITTIDataset(SingleDataset):
     """Superclass for different types of KITTI dataset loaders
     """
     def __init__(self, *args, **kwargs):

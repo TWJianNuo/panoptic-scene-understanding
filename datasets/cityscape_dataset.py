@@ -12,13 +12,13 @@ import numpy as np
 import PIL.Image as pil
 
 from kitti_utils import generate_depth_map
-from .mono_dataset import MonoDataset
+from .SingleDataset import SingleDataset
 from torchvision import transforms
 import json
 import copy
 
 
-class CITYSCAPEDataset(MonoDataset):
+class CITYSCAPEDataset(SingleDataset):
     """Superclass for different types of KITTI dataset loaders
     """
     def __init__(self, *args, **kwargs):
@@ -66,6 +66,8 @@ class CITYSCAPEDataset(MonoDataset):
             s = 2 ** i
             self.resize[i] = transforms.Resize((self.height // s, self.width // s),
                                                interpolation=self.interp)
+        self.seman_resize = transforms.Resize((self.height, self.width),
+                                               interpolation=pil.NEAREST)
 
     # def get_img_size(self, folder):
     #     return self.ctsImg_sz_rec[self.t_folder(folder)]
@@ -98,10 +100,10 @@ class CITYSCAPEDataset(MonoDataset):
 
     def get_seman(self, folder):
         seman_path, ins_path = self.get_ins_seman_path(folder)
-        seman_label = np.array(self.loader(seman_path))
-        ins_label = np.array(self.loader(ins_path))
-        pil.fromarray(((seman_label == 1)*255).astype(np.uint8)).show()
-        return seman_label, ins_label
+        seman_label = np.array(self.loader(seman_path))[:,:,0]
+        # ins_label = np.array(self.loader(ins_path))
+        # pil.fromarray(((seman_label == 1)*255).astype(np.uint8)).show()
+        return seman_label
 
     def check_seman(self):
         return True
@@ -129,10 +131,13 @@ class CITYSCAPERawDataset(CITYSCAPEDataset):
         return cts_focal, baseline
 
     def get_ins_seman_path(self, folder):
-        seman_path = os.path.join(self.data_path, "gtFine", folder + "gtFine_instanceIds" + self.img_ext)
-        ins_path = os.path.join(self.data_path, "gtFine", folder + "gtFine_labelIds" + self.img_ext)
+        if folder.split("/")[0] == 'train' or folder.split("/")[0] == 'val':
+            ins_path = os.path.join(self.data_path, "gtFine_processed", folder + "gtFine_instanceTrainIds" + self.img_ext)
+            seman_path = os.path.join(self.data_path, "gtFine_processed", folder + "gtFine_labelTrainIds" + self.img_ext)
+        elif folder.split("/")[0] == 'train_extra':
+            ins_path = os.path.join(self.data_path, "gtCoarse_processed", folder + "gtCoarse_instanceTrainIds" + self.img_ext)
+            seman_path = os.path.join(self.data_path, "gtCoarse_processed", folder + "gtCoarse_labelTrainIds" + self.img_ext)
         return seman_path, ins_path
-
 
     # def t_folder(self, folder):
     #     return folder.split('/')[2][:-1:]

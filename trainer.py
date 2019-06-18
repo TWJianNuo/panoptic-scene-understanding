@@ -25,6 +25,8 @@ import datasets
 import networks
 # from IPython import embed
 from utils import my_Sampler
+import cityscapesscripts.helpers.labels
+from cityscapesscripts.evaluation.evalPixelLevelSemanticLabeling import *
 
 
 class Trainer:
@@ -43,6 +45,7 @@ class Trainer:
 
         self.num_scales = len(self.opt.scales)
         self.num_input_frames = len(self.opt.frame_ids)
+        self.semanticCoeff = 0.1
         # self.num_pose_frames = 2 if self.opt.pose_model_input == "pairs" else self.num_input_frames
 
         assert self.opt.frame_ids[0] == 0, "frame_ids must start with 0"
@@ -58,9 +61,14 @@ class Trainer:
         self.parameters_to_train += list(self.models["encoder"].parameters())
 
         self.models["depth"] = networks.DepthDecoder(
-            self.models["encoder"].num_ch_enc, self.opt.scales)
+            self.models["encoder"].num_ch_enc, self.opt.scales, semanticScale=self.opt.semanticScales)
         self.models["depth"].to(self.device)
         self.parameters_to_train += list(self.models["depth"].parameters())
+
+        # self.models["semantic"] = networks.CombinedDecoder(
+        #     self.models["encoder"].num_ch_enc, self.opt.scales)
+        # self.models["semantic"].to(self.device)
+        # self.parameters_to_train += list(self.models["semantic"].parameters())
 
         # if self.use_pose_net:
         #     if self.opt.pose_model_type == "separate_resnet":
@@ -177,6 +185,7 @@ class Trainer:
     def set_layers(self):
         """properly handle layer initialization under multiple dataset situation
         """
+        self.semanticLoss = Compute_SemanticLoss(self.opt.semanticScales)
         self.backproject_depth = {}
         self.project_3d = {}
         tags = list()
@@ -221,8 +230,7 @@ class Trainer:
 
             train_dataset = initFunc(
                 datapath_set[i], train_filenames, self.opt.height, self.opt.width,
-                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=True, img_ext=img_ext,
-                require_seman=self.opt.require_semantic)
+                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=True, img_ext=img_ext)
             train_sample_num[i] = train_dataset.__len__()
             stacked_train_datasets.append(train_dataset)
 
@@ -334,6 +342,9 @@ class Trainer:
 
         features = self.models["encoder"](inputs["color_aug", 0, 0])
         outputs = self.models["depth"](features)
+        # semantic_output = self.models["semantic"](features)
+        # for entry in semantic_output:
+        #     outputs[entry] = semantic_output[entry]
 
         if self.opt.predictive_mask:
             outputs["predictive_mask"] = self.models["predictive_mask"](features)
@@ -419,11 +430,13 @@ class Trainer:
 
             if "depth_gt" in inputs:
                 self.compute_depth_losses(inputs, outputs, losses)
-
+            if 'seman_gt_eval' in inputs:
+                self.compute_semantic_losses(inputs, outputs, losses)
             self.log("val", inputs, outputs, losses)
             del inputs, outputs, losses
 
         self.set_train()
+
 
     def generate_images_pred(self, inputs, outputs):
         """Generate the warped (reprojected) color images for a minibatch.
@@ -581,11 +594,95 @@ class Trainer:
 
             loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
             total_loss += loss
-            losses["loss/{}".format(scale)] = loss
-
-        total_loss /= self.num_scales
+            losses["loss_depth/{}".format(scale)] = loss
+        if 'seman_gt' in inputs:
+            loss_seman, loss_semantoshow = self.semanticLoss(inputs, outputs) # semantic loss is scaled already
+            for entry in loss_semantoshow:
+                losses[entry] = loss_semantoshow[entry]
+            total_loss = total_loss / self.num_scales + self.semanticCoeff * loss_seman
+        else:
+            total_loss = total_loss / self.num_scales
         losses["loss"] = total_loss
         return losses
+
+
+
+    def compute_semantic_losses(self, inputs, outputs, losses):
+        """Compute semantic metrics, to allow monitoring during training
+
+        This isn't particularly accurate as it averages over the entire batch,
+        so is only used to give an indication of validation performance
+        """
+        gt = inputs['seman_gt_eval'].cpu().numpy().astype(np.uint8)
+        pred = outputs[('seman', 0)].detach()
+        pred = torch.argmax(pred, dim=1).type(torch.float).unsqueeze(1)
+        pred = F.interpolate(pred, [gt.shape[1], gt.shape[2]], mode='nearest')
+        pred = pred.squeeze(1).cpu().numpy().astype(np.uint8)
+        # pred = labelMapping(pred)
+
+        confMatrix = generateMatrix(args)
+        # instStats = generateInstanceStats(args)
+        # perImageStats = {}
+        # nbPixels = 0
+
+        groundTruthNp = gt
+        predictionNp = pred
+        # imgWidth = groundTruthNp.shape[1]
+        # imgHeight = groundTruthNp.shape[0]
+        nbPixels = groundTruthNp.shape[0] * groundTruthNp.shape[1] * groundTruthNp.shape[2]
+
+        # encoding_value = max(groundTruthNp.max(), predictionNp.max()).astype(np.int32) + 1
+        encoding_value = 256 # precomputed
+        encoded = (groundTruthNp.astype(np.int32) * encoding_value) + predictionNp
+
+        values, cnt = np.unique(encoded, return_counts=True)
+        count255 = 0
+        for value, c in zip(values, cnt):
+            pred_id = value % encoding_value
+            gt_id = int((value - pred_id) / encoding_value)
+            if pred_id == 255 or gt_id == 255:
+                count255 = count255 + c
+                continue
+            if not gt_id in args.evalLabels:
+                printError("Unknown label with id {:}".format(gt_id))
+            confMatrix[gt_id][pred_id] += c
+
+        if confMatrix.sum() +  count255!= nbPixels:
+            printError(
+                'Number of analyzed pixels and entries in confusion matrix disagree: contMatrix {}, pixels {}'.format(
+                    confMatrix.sum(), nbPixels))
+
+        classScoreList = {}
+        for label in args.evalLabels:
+            labelName = trainId2label[label].name
+            classScoreList[labelName] = getIouScoreForLabel(label, confMatrix, args)
+        losses['mIOU'] = np.mean(np.array(list(classScoreList.values())))
+
+        # for i in range(pred.shape[0]):
+        #     groundTruthNp = gt[i, :, :]
+        #     predictionNp = pred[i, :, :]
+        #     imgWidth = groundTruthNp.shape[1]
+        #     imgHeight = groundTruthNp.shape[0]
+        #     nbPixels = imgWidth * imgHeight
+        #
+        #     encoding_value = max(groundTruthNp.max(), predictionNp.max()).astype(np.int32) + 1
+        #     encoded = (groundTruthNp.astype(np.int32) * encoding_value) + predictionNp
+        #
+        #     values, cnt = np.unique(encoded, return_counts=True)
+        #
+        #     for value, c in zip(values, cnt):
+        #         pred_id = value % encoding_value
+        #         gt_id = int((value - pred_id) / encoding_value)
+        #         if pred_id == 255 or gt_id == 255:
+        #             continue
+        #         if not gt_id in args.evalLabels:
+        #             printError("Unknown label with id {:}".format(gt_id))
+        #         confMatrix[gt_id][pred_id] += c
+        #
+        #     if confMatrix.sum() != nbPixels:
+        #         printError(
+        #             'Number of analyzed pixels and entries in confusion matrix disagree: contMatrix {}, pixels {}'.format(
+        #                 confMatrix.sum(), nbPixels))
 
     def compute_depth_losses(self, inputs, outputs, losses):
         """Compute depth metrics, to allow monitoring during training

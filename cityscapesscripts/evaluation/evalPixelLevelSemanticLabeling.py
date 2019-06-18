@@ -170,14 +170,17 @@ args.predictionWalk = None
 
 # Generate empty confusion matrix and create list of relevant labels
 def generateMatrix(args):
-    args.evalLabels = []
-    for label in labels:
-        if (label.id < 0):
-            continue
-        # we append all found labels, regardless of being ignored
-        args.evalLabels.append(label.id)
-    maxId = max(args.evalLabels)
+    # args.evalLabels = []
+    # for label in labels:
+    #     if (label.id < 0):
+    #         continue
+    #     args.evalLabels.append(label.id)
+    # maxId = max(args.evalLabels)
     # We use longlong type to be sure that there are no overflows
+    args.evalLabels = []
+    maxId = 18  # Modified files
+    for id in range(maxId + 1):
+        args.evalLabels.append(id)
     return np.zeros(shape=(maxId+1, maxId+1),dtype=np.ulonglong)
 
 def generateInstanceStats(args):
@@ -226,7 +229,7 @@ def getMatrixFieldValue(confMatrix, i, j, args):
 
 # Calculate and return IOU score for a particular label
 def getIouScoreForLabel(label, confMatrix, args):
-    if id2label[label].ignoreInEval:
+    if trainId2label[label].ignoreInEval:
         return float('nan')
 
     # the number of true positive pixels for this label
@@ -242,7 +245,7 @@ def getIouScoreForLabel(label, confMatrix, args):
     # Only pixels that are not on a pixel with ground truth label that is ignored
     # The column sum of the corresponding column in the confusion matrix
     # without the ignored rows and without the actual label of interest
-    notIgnored = [l for l in args.evalLabels if not id2label[l].ignoreInEval and not l==label]
+    notIgnored = [l for l in args.evalLabels if not trainId2label[l].ignoreInEval and not l==label]
     fp = np.longlong(confMatrix[notIgnored,label].sum())
 
     # the denominator of the IOU score

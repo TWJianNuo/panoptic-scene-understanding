@@ -25,7 +25,7 @@ def pil_loader(path):
             return img.convert('RGB')
 
 
-class MonoDataset(data.Dataset):
+class SingleDataset(data.Dataset):
     """Superclass for monocular dataloaders
 
     Args:
@@ -47,10 +47,9 @@ class MonoDataset(data.Dataset):
                  num_scales,
                  tag,
                  is_train=False,
-                 img_ext='.png',
-                 require_seman=False
+                 img_ext='.png'
                  ):
-        super(MonoDataset, self).__init__()
+        super(SingleDataset, self).__init__()
 
         self.data_path = data_path
         self.filenames = filenames
@@ -92,7 +91,7 @@ class MonoDataset(data.Dataset):
                                                interpolation=self.interp)
 
         self.load_depth = self.check_depth()
-        self.load_seman = self.check_seman() and require_seman
+        self.load_seman = self.check_seman()
 
     def preprocess(self, inputs, color_aug):
         """Resize colour images to the required scales and augment if required
@@ -114,6 +113,8 @@ class MonoDataset(data.Dataset):
                 n, im, i = k
                 inputs[(n, im, i)] = self.to_tensor(f)
                 inputs[(n + "_aug", im, i)] = self.to_tensor(color_aug(f))
+
+
 
     def __len__(self):
         return len(self.filenames)
@@ -201,8 +202,12 @@ class MonoDataset(data.Dataset):
             inputs["depth_gt"] = torch.from_numpy(inputs["depth_gt"].astype(np.float32))
 
         if self.load_seman:
-            # seman_gt = self.get_seman(folder)
-            raise NotImplementedError
+            seman_gt = self.get_seman(folder)
+            inputs["seman_gt_eval"] = seman_gt
+            seman_gt = np.array(self.seman_resize(Image.fromarray(seman_gt)))
+            inputs["seman_gt"] = np.expand_dims(seman_gt, 0)
+            inputs["seman_gt"] = torch.from_numpy(inputs["seman_gt"].astype(np.int))
+            # raise NotImplementedError
 
         # baseline = self.get_baseLine(folder)
         rescale_fac = self.get_rescaleFac(folder)

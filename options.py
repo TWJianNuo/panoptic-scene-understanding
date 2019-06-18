@@ -25,7 +25,6 @@ class MonodepthOptions:
                                  type=str,
                                  help="log directory",
                                  default=os.path.join(os.path.expanduser("~"), "tmp"))
-
         # TRAINING options
         self.parser.add_argument("--model_name",
                                  type=str,
@@ -134,6 +133,10 @@ class MonodepthOptions:
                                  help="pretrained or scratch",
                                  default="pretrained",
                                  choices=["pretrained", "scratch"])
+        self.parser.add_argument("--semanticScales",
+                                 type=int,
+                                 help="scales used in semantic decoder branch",
+                                 default=4)
         # self.parser.add_argument("--pose_model_input",
         #                          type=str,
         #                          help="how many images the pose network gets",

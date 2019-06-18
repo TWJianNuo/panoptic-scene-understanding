@@ -11,7 +11,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import time
 
 def disp_to_depth(disp, min_depth, max_depth):
     """Convert network's sigmoid output into depth prediction
@@ -264,3 +264,28 @@ def compute_depth_errors(gt, pred):
     sq_rel = torch.mean((gt - pred) ** 2 / gt)
 
     return abs_rel, sq_rel, rmse, rmse_log, a1, a2, a3
+
+class Compute_SemanticLoss(nn.Module):
+    def __init__(self, scales, classtype = 19):
+        super(Compute_SemanticLoss, self).__init__()
+        self.scales = range(scales)
+        self.cen = nn.CrossEntropyLoss()
+        self.classtype = classtype # default is cityscape setting 19
+    def reorder(self, input, clssDim):
+        return input.permute(2,3,1,0).contiguous().view(-1, clssDim)
+    def forward(self, inputs, outputs):
+        height = inputs['seman_gt'].shape[2]
+        width = inputs['seman_gt'].shape[3]
+        mask = self.reorder(inputs['seman_gt'] != 255, 1)
+        label = self.reorder(inputs['seman_gt'], 1)
+        loss_toshow = dict()
+        loss = 0
+        for scale in self.scales:
+            entry = ('seman', scale)
+            scaled = F.interpolate(outputs[entry], size = [height, width], mode = 'bilinear')
+            rearranged = self.reorder(scaled, self.classtype)
+            cenl = self.cen(rearranged[mask[:,0], :], label[mask])
+            loss_toshow["loss_seman/{}".format(scale)] = cenl
+            loss = loss + cenl
+        loss = loss / len(self.scales)
+        return loss, loss_toshow

@@ -13,10 +13,6 @@ class PreparationOptions:
                                  type=str,
                                  default=None,
                                  help="path to the cityscape dataset")
-        self.parser.add_argument("--fold_appen",
-                                 type=str,
-                                 default='_processed',
-                                 help="change cityscape dataset semantic label to predefined value")
     def parse(self):
         self.options = self.parser.parse_args()
         return self.options
@@ -26,4 +22,5 @@ if __name__ == "__main__":
     options = PreparationOptions()
     opts = options.parse()
     assert (opts.cts_path is not None), "Please enter necessary parameter"
-    prepcts = PreapareCityscape(opts.cts_path, opts.fold_appen)
+    fold_appen = "_processed"
+    prepcts = PreapareCityscape(opts.cts_path, fold_appen)

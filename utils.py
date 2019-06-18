@@ -17,6 +17,7 @@ from globalInfo import acGInfo
 from torch.utils.data.sampler import Sampler
 from random import shuffle
 import PIL.Image as pil
+from numba import jit
 
 def readlines(filename):
     """Read all the lines in a text file and return as a list
@@ -268,3 +269,35 @@ def visualize_outpu(inputs, outputs, sv_path, sv_ind):
         img3 = inputs[('color', 0, 0)].permute(0, 2, 3, 1)[picind, :, :, :].clone().detach().cpu().numpy()
         combined_img = np.concatenate((img1, img2, img3), axis=0)
         pil.fromarray((combined_img * 255).astype(np.uint8)).save(c_sv_path)
+
+
+# @jit(nopython=True, parallel=True)
+# def labelMapping(inputimg):
+#     transferredImg = np.zeros(inputimg.shape, dtype=np.uint8)
+#     mappingdict = np.zeros(256, dtype=np.uint8)
+#     mappingdict[0] = 7
+#     mappingdict[1] = 8
+#     mappingdict[2] = 11
+#     mappingdict[3] = 12
+#     mappingdict[4] = 13
+#     mappingdict[5] = 17
+#     mappingdict[6] = 19
+#     mappingdict[7] = 20
+#     mappingdict[8] = 21
+#     mappingdict[9] = 22
+#     mappingdict[10] = 23
+#     mappingdict[11] = 24
+#     mappingdict[12] = 25
+#     mappingdict[13] = 26
+#     mappingdict[14] = 27
+#     mappingdict[15] = 28
+#     mappingdict[16] = 31
+#     mappingdict[17] = 32
+#     mappingdict[18] = 33
+#
+#     for p in range(inputimg.shape[0]):
+#         for m in range(inputimg.shape[1]):
+#             for n in range(inputimg.shape[2]):
+#                 transferredImg[p,m,n] = mappingdict[inputimg[p,m,n]]
+#
+#     return transferredImg
