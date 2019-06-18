@@ -17,7 +17,7 @@ from globalInfo import acGInfo
 from torch.utils.data.sampler import Sampler
 from random import shuffle
 import PIL.Image as pil
-from numba import jit
+# from numba import jit
 
 def readlines(filename):
     """Read all the lines in a text file and return as a list
