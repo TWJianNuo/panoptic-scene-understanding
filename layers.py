@@ -277,7 +277,8 @@ class Compute_SemanticLoss(nn.Module):
         height = inputs['seman_gt'].shape[2]
         width = inputs['seman_gt'].shape[3]
         mask = self.reorder(inputs['seman_gt'] != 255, 1)
-        label = self.reorder(inputs['seman_gt'], 1)
+        # label = self.reorder(inputs['seman_gt'], 1)
+        label = self.reorder(torch.zeros_like(inputs['seman_gt']), 1)
         loss_toshow = dict()
         loss = 0
         for scale in self.scales:

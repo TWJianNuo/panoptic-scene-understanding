@@ -49,7 +49,7 @@ class Trainer:
 
         self.num_scales = len(self.opt.scales)
         self.num_input_frames = len(self.opt.frame_ids)
-        self.semanticCoeff = 100
+        self.semanticCoeff = 1
         # self.num_pose_frames = 2 if self.opt.pose_model_input == "pairs" else self.num_input_frames
 
         assert self.opt.frame_ids[0] == 0, "frame_ids must start with 0"
@@ -614,9 +614,9 @@ class Trainer:
             for entry in loss_semantoshow:
                 losses[entry] = loss_semantoshow[entry]
             total_loss = total_loss + self.semanticCoeff * loss_seman
-            total_loss = torch.mean(torch.exp(-outputs[('seman', 0)][:,0,:,:]))
-            # losses["loss_semantic"] = loss_seman
-            losses["loss_semantic"] = total_loss
+            # total_loss = torch.mean(torch.exp(-outputs[('seman', 0)][:,0,:,:]))
+            losses["loss_semantic"] = loss_seman
+            # losses["loss_semantic"] = total_loss
         # assert total_loss == 0, "toatal loss is zero"
         losses["loss"] = total_loss
         return losses
