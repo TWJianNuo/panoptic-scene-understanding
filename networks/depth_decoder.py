@@ -101,7 +101,7 @@ class DepthDecoder(nn.Module):
                     y = self.convs[("upconv_seman", i, 1)](y)
                     xdS[i] = y
                 for i in self.scales:
-                    self.outputs[("seman", i)] = self.sfx(self.convs[("semanconv", i)](xdS[i]))
+                    self.outputs[("seman", i)] = self.sfx(self.sigmoid(self.convs[("semanconv", i)](xdS[i])))
         else:
             # Twice inference
             if computeDepth:

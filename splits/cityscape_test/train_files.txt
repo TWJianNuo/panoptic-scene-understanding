@@ -1,0 +1,12 @@
+train/zurich/zurich_000076_000019_ 0000000000 l
+train/erfurt/erfurt_000020_000019_ 0000000001 l
+train/bremen/bremen_000261_000019_ 0000000002 l
+train/tubingen/tubingen_000143_000019_ 0000000003 l
+train/hamburg/hamburg_000000_102574_ 0000000004 l
+train/bremen/bremen_000272_000019_ 0000000005 l
+train/aachen/aachen_000110_000019_ 0000000006 l
+train/dusseldorf/dusseldorf_000099_000019_ 0000000007 l
+train/hamburg/hamburg_000000_038915_ 0000000008 l
+train/dusseldorf/dusseldorf_000146_000019_ 0000000009 l
+train/dusseldorf/dusseldorf_000208_000019_ 0000000010 l
+train/hamburg/hamburg_000000_002338_ 0000000011 l

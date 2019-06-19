@@ -49,7 +49,7 @@ class Trainer:
 
         self.num_scales = len(self.opt.scales)
         self.num_input_frames = len(self.opt.frame_ids)
-        self.semanticCoeff = 0.1
+        self.semanticCoeff = 100
         # self.num_pose_frames = 2 if self.opt.pose_model_input == "pairs" else self.num_input_frames
 
         assert self.opt.frame_ids[0] == 0, "frame_ids must start with 0"
@@ -309,8 +309,8 @@ class Trainer:
             duration = time.time() - before_op_time
 
             # log less frequently after the first 2000 steps to save time & disk space
-            early_phase = batch_idx % self.opt.log_frequency == 0 and self.step < 200
-            late_phase = self.step % 200 == 0
+            early_phase = batch_idx % self.opt.log_frequency == 0 and self.step < 1
+            late_phase = self.step % 1 == 0
 
             if early_phase or late_phase:
 
@@ -614,6 +614,7 @@ class Trainer:
             for entry in loss_semantoshow:
                 losses[entry] = loss_semantoshow[entry]
             total_loss = total_loss + self.semanticCoeff * loss_seman
+            # total_loss = torch.sum(torch.exp(-outputs[('seman', 0)][:,0,:,:]))
             losses["loss_semantic"] = loss_seman
         # assert total_loss == 0, "toatal loss is zero"
         losses["loss"] = total_loss
