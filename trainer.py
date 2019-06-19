@@ -38,6 +38,10 @@ class Trainer:
         assert self.opt.height % 32 == 0, "'height' must be a multiple of 32"
         assert self.opt.width % 32 == 0, "'width' must be a multiple of 32"
 
+        if self.opt.switchMode == 'on':
+            self.switchMode = True
+        else:
+            self.switchMode = False
         self.models = {}
         self.parameters_to_train = []
 
@@ -61,7 +65,7 @@ class Trainer:
         self.parameters_to_train += list(self.models["encoder"].parameters())
 
         self.models["depth"] = networks.DepthDecoder(
-            self.models["encoder"].num_ch_enc, self.opt.scales, semanticScale=self.opt.semanticScales)
+            self.models["encoder"].num_ch_enc, self.opt.scales, isSwitch=self.switchMode)
         self.models["depth"].to(self.device)
         self.parameters_to_train += list(self.models["depth"].parameters())
 
@@ -177,6 +181,7 @@ class Trainer:
             "de/abs_rel", "de/sq_rel", "de/rms", "de/log_rms", "da/a1", "da/a2", "da/a3"]
 
         print("Using split:\n  ", self.opt.split)
+        print("Switch mode on") if self.switchMode else print("Switch mode off")
         print("There are {:d} training items and {:d} validation items\n".format(
             self.train_num, self.val_num))
 
@@ -185,7 +190,7 @@ class Trainer:
     def set_layers(self):
         """properly handle layer initialization under multiple dataset situation
         """
-        self.semanticLoss = Compute_SemanticLoss(self.opt.semanticScales)
+        self.semanticLoss = Compute_SemanticLoss()
         self.backproject_depth = {}
         self.project_3d = {}
         tags = list()
@@ -304,11 +309,21 @@ class Trainer:
             duration = time.time() - before_op_time
 
             # log less frequently after the first 2000 steps to save time & disk space
-            early_phase = batch_idx % self.opt.log_frequency == 0 and self.step < 2000
-            late_phase = self.step % 2000 == 0
+            early_phase = batch_idx % self.opt.log_frequency == 0 and self.step < 200
+            late_phase = self.step % 200 == 0
 
             if early_phase or late_phase:
-                self.log_time(batch_idx, duration, losses["loss"].cpu().data)
+
+                if "loss_semantic" in losses:
+                    loss_seman = losses["loss_semantic"].cpu().data
+                else:
+                    loss_seman = -1
+                if "loss_depth" in losses:
+                    loss_depth = losses["loss_depth"].cpu().data
+                else:
+                    loss_depth = -1
+
+                self.log_time(batch_idx, duration, loss_seman, loss_depth)
 
                 if "depth_gt" in inputs:
                     self.compute_depth_losses(inputs, outputs, losses)
@@ -713,7 +728,7 @@ class Trainer:
         for i, metric in enumerate(self.depth_metric_names):
             losses[metric] = np.array(depth_errors[i].cpu())
 
-    def log_time(self, batch_idx, duration, loss):
+    def log_time(self, batch_idx, duration, loss_semantic, loss_depth):
         """Print a logging statement to the terminal
         """
         samples_per_sec = self.opt.batch_size / duration
@@ -721,8 +736,8 @@ class Trainer:
         training_time_left = (
             self.num_total_steps / self.step - 1.0) * time_sofar if self.step > 0 else 0
         print_string = "epoch {:>3} | batch {:>6} | examples/s: {:5.1f}" + \
-            " | loss: {:.5f} | time elapsed: {} | time left: {}"
-        print(print_string.format(self.epoch, batch_idx, samples_per_sec, loss,
+            " | loss_semantic: {:.5f} | loss_depth: {:.5f} | time elapsed: {} | time left: {}"
+        print(print_string.format(self.epoch, batch_idx, samples_per_sec, loss_semantic, loss_depth,
                                   sec_to_hm_str(time_sofar), sec_to_hm_str(training_time_left)))
 
     def log(self, mode, inputs, outputs, losses):
