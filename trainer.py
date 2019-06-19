@@ -614,8 +614,9 @@ class Trainer:
             for entry in loss_semantoshow:
                 losses[entry] = loss_semantoshow[entry]
             total_loss = total_loss + self.semanticCoeff * loss_seman
-            # total_loss = torch.sum(torch.exp(-outputs[('seman', 0)][:,0,:,:]))
-            losses["loss_semantic"] = loss_seman
+            total_loss = torch.mean(torch.exp(-outputs[('seman', 0)][:,0,:,:]))
+            # losses["loss_semantic"] = loss_seman
+            losses["loss_semantic"] = total_loss
         # assert total_loss == 0, "toatal loss is zero"
         losses["loss"] = total_loss
         return losses
