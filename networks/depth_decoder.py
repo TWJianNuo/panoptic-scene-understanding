@@ -22,7 +22,7 @@ class DepthDecoder(nn.Module):
         self.use_skips = use_skips
         self.upsample_mode = 'nearest'
         self.scales = scales
-        self.semanticScale = semanticScale  # defaul is 2
+        self.commonScale = semanticScale  # defaul is 2
         self.semanticType = 19 # by cityscape default
 
         self.num_ch_enc = num_ch_enc
@@ -47,7 +47,7 @@ class DepthDecoder(nn.Module):
             self.convs[("dispconv", s)] = Conv3x3(self.num_ch_dec[s], self.num_output_channels)
 
         # For semantics
-        for i in range(self.semanticScale, -1, -1):
+        for i in range(self.commonScale, -1, -1):
             # upconv_0
             num_ch_in = self.num_ch_enc[-1] if i == 4 else self.num_ch_dec[i + 1]
             num_ch_out = self.num_ch_dec[i]
@@ -60,38 +60,50 @@ class DepthDecoder(nn.Module):
             num_ch_out = self.num_ch_dec[i]
             self.convs[("upconv_seman", i, 1)] = ConvBlock(num_ch_in, num_ch_out)
 
-        # Semantic only calculate last scale
-        for s in range(self.semanticScale):
+
+        for s in range(self.commonScale):
             self.convs[("semanconv", s)] = Conv3x3(self.num_ch_dec[s], self.semanticType)
 
         self.decoder = nn.ModuleList(list(self.convs.values()))
         self.sigmoid = nn.Sigmoid()
         self.sfx = nn.Softmax()
 
-    def forward(self, input_features, computeSemantic = False):
+    def forward(self, input_features, computeSemantic = False, computeDepth = True):
         self.outputs = {}
 
         # decoder
         x = input_features[-1]
-        for i in range(4, -1, -1):
-            if i == self.semanticScale:
-                y = x.clone() # preserve semantic branch
+        xdD = {5:x}
+        for i in range(4, self.commonScale, -1):
             x = self.convs[("upconv", i, 0)](x)
             x = [upsample(x)]
             if self.use_skips and i > 0:
                 x += [input_features[i - 1]]
             x = torch.cat(x, 1)
             x = self.convs[("upconv", i, 1)](x)
-            if i in self.scales:
-                self.outputs[("disp", i)] = self.sigmoid(self.convs[("dispconv", i)](x))
-        if computeSemantic:
-            for i in range(self.semanticScale, -1, -1):
-                y = self.convs[("upconv_seman", i, 0)](y)
-                y = [upsample(y)]
+            xdD[i] = x
+
+        if computeDepth:
+            xd = xdD[self.commonScale + 1]
+            for i in range(self.commonScale, -1, -1):
+                xd = self.convs[("upconv", i, 0)](xd)
+                xd = [upsample(xd)]
                 if self.use_skips and i > 0:
-                    y += [input_features[i - 1]]
-                y = torch.cat(y, 1)
-                y = self.convs[("upconv_seman", i, 1)](y)
-                if i in range(self.semanticScale):
-                    self.outputs[("seman", i)] = self.sfx(self.convs[("semanconv", i)](y))
+                    xd += [input_features[i - 1]]
+                xd = torch.cat(xd, 1)
+                xd = self.convs[("upconv", i, 1)](xd)
+                xdD[i] = xd
+            for i in self.scales:
+                self.outputs[("disp", i)] = self.sigmoid(self.convs[("dispconv", i)](xdD[i]))
+        if computeSemantic:
+            xs = xdD[self.commonScale + 1]
+            for i in range(self.commonScale, -1, -1):
+                xs = self.convs[("upconv_seman", i, 0)](xs)
+                xs = [upsample(xs)]
+                if self.use_skips and i > 0:
+                    xs += [input_features[i - 1]]
+                xs = torch.cat(xs, 1)
+                xs = self.convs[("upconv_seman", i, 1)](xs)
+                if i in range(self.commonScale):
+                    self.outputs[("seman", i)] = self.sfx(self.convs[("semanconv", i)](xs))
         return self.outputs

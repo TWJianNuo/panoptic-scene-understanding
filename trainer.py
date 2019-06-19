@@ -341,21 +341,14 @@ class Trainer:
 
 
         features = self.models["encoder"](inputs["color_aug", 0, 0])
+        # Switch between semantic and depth estimation
         if 'seman_gt' in inputs:
-            outputs = self.models["depth"](features, computeSemantic = True)
+            outputs = self.models["depth"](features, computeSemantic = True, computeDepth = False)
         else:
-            outputs = self.models["depth"](features, computeSemantic = False)
-        # semantic_output = self.models["semantic"](features)
-        # for entry in semantic_output:
-        #     outputs[entry] = semantic_output[entry]
-
-        if self.opt.predictive_mask:
-            outputs["predictive_mask"] = self.models["predictive_mask"](features)
-
-        # if self.use_pose_net:
-        #     outputs.update(self.predict_poses(inputs, features))
-
-        self.generate_images_pred(inputs, outputs)
+            outputs = self.models["depth"](features, computeSemantic = False, computeDepth = True)
+            if self.opt.predictive_mask:
+                outputs["predictive_mask"] = self.models["predictive_mask"](features)
+            self.generate_images_pred(inputs, outputs)
         losses = self.compute_losses(inputs, outputs)
 
         return outputs, losses
@@ -517,95 +510,97 @@ class Trainer:
         losses = {}
         total_loss = 0
 
-        for scale in self.opt.scales:
-            loss = 0
-            reprojection_losses = []
+        if ('disp', 0) in outputs:
+            for scale in self.opt.scales:
+                loss = 0
+                reprojection_losses = []
 
-            if self.opt.v1_multiscale:
-                source_scale = scale
-            else:
-                source_scale = 0
+                if self.opt.v1_multiscale:
+                    source_scale = scale
+                else:
+                    source_scale = 0
 
-            disp = outputs[("disp", scale)]
-            color = inputs[("color", 0, scale)]
-            target = inputs[("color", 0, source_scale)]
+                disp = outputs[("disp", scale)]
+                color = inputs[("color", 0, scale)]
+                target = inputs[("color", 0, source_scale)]
 
-            for frame_id in self.opt.frame_ids[1:]:
-                pred = outputs[("color", frame_id, scale)]
-                reprojection_losses.append(self.compute_reprojection_loss(pred, target))
-
-            reprojection_losses = torch.cat(reprojection_losses, 1)
-
-            if not self.opt.disable_automasking:
-                identity_reprojection_losses = []
                 for frame_id in self.opt.frame_ids[1:]:
-                    pred = inputs[("color", frame_id, source_scale)]
-                    identity_reprojection_losses.append(
-                        self.compute_reprojection_loss(pred, target))
+                    pred = outputs[("color", frame_id, scale)]
+                    reprojection_losses.append(self.compute_reprojection_loss(pred, target))
 
-                identity_reprojection_losses = torch.cat(identity_reprojection_losses, 1)
+                reprojection_losses = torch.cat(reprojection_losses, 1)
+
+                if not self.opt.disable_automasking:
+                    identity_reprojection_losses = []
+                    for frame_id in self.opt.frame_ids[1:]:
+                        pred = inputs[("color", frame_id, source_scale)]
+                        identity_reprojection_losses.append(
+                            self.compute_reprojection_loss(pred, target))
+
+                    identity_reprojection_losses = torch.cat(identity_reprojection_losses, 1)
+
+                    if self.opt.avg_reprojection:
+                        identity_reprojection_loss = identity_reprojection_losses.mean(1, keepdim=True)
+                    else:
+                        # save both images, and do min all at once below
+                        identity_reprojection_loss = identity_reprojection_losses
+
+                elif self.opt.predictive_mask:
+                    # use the predicted mask
+                    mask = outputs["predictive_mask"]["disp", scale]
+                    if not self.opt.v1_multiscale:
+                        # mask = F.interpolate(
+                        #     mask, [self.opt.height, self.opt.width],
+                        #     mode="bilinear", align_corners=False)
+                        mask = F.interpolate(
+                            mask, [inputs["height"], inputs["width"]],
+                            mode="bilinear", align_corners=False)
+                    reprojection_losses *= mask
+
+                    # add a loss pushing mask to 1 (using nn.BCELoss for stability)
+                    weighting_loss = 0.2 * nn.BCELoss()(mask, torch.ones(mask.shape).cuda())
+                    loss += weighting_loss.mean()
 
                 if self.opt.avg_reprojection:
-                    identity_reprojection_loss = identity_reprojection_losses.mean(1, keepdim=True)
+                    reprojection_loss = reprojection_losses.mean(1, keepdim=True)
                 else:
-                    # save both images, and do min all at once below
-                    identity_reprojection_loss = identity_reprojection_losses
+                    reprojection_loss = reprojection_losses
 
-            elif self.opt.predictive_mask:
-                # use the predicted mask
-                mask = outputs["predictive_mask"]["disp", scale]
-                if not self.opt.v1_multiscale:
-                    # mask = F.interpolate(
-                    #     mask, [self.opt.height, self.opt.width],
-                    #     mode="bilinear", align_corners=False)
-                    mask = F.interpolate(
-                        mask, [inputs["height"], inputs["width"]],
-                        mode="bilinear", align_corners=False)
-                reprojection_losses *= mask
+                if not self.opt.disable_automasking:
+                    # add random numbers to break ties
+                    identity_reprojection_loss += torch.randn(
+                        identity_reprojection_loss.shape).cuda() * 0.00001
 
-                # add a loss pushing mask to 1 (using nn.BCELoss for stability)
-                weighting_loss = 0.2 * nn.BCELoss()(mask, torch.ones(mask.shape).cuda())
-                loss += weighting_loss.mean()
+                    combined = torch.cat((identity_reprojection_loss, reprojection_loss), dim=1)
+                else:
+                    combined = reprojection_loss
 
-            if self.opt.avg_reprojection:
-                reprojection_loss = reprojection_losses.mean(1, keepdim=True)
-            else:
-                reprojection_loss = reprojection_losses
+                if combined.shape[1] == 1:
+                    to_optimise = combined
+                else:
+                    to_optimise, idxs = torch.min(combined, dim=1)
 
-            if not self.opt.disable_automasking:
-                # add random numbers to break ties
-                identity_reprojection_loss += torch.randn(
-                    identity_reprojection_loss.shape).cuda() * 0.00001
+                if not self.opt.disable_automasking:
+                    outputs["identity_selection/{}".format(scale)] = (idxs > 1).float()
 
-                combined = torch.cat((identity_reprojection_loss, reprojection_loss), dim=1)
-            else:
-                combined = reprojection_loss
+                loss += to_optimise.mean()
 
-            if combined.shape[1] == 1:
-                to_optimise = combined
-            else:
-                to_optimise, idxs = torch.min(combined, dim=1)
+                mean_disp = disp.mean(2, True).mean(3, True)
+                norm_disp = disp / (mean_disp + 1e-7)
+                smooth_loss = get_smooth_loss(norm_disp, color)
 
-            if not self.opt.disable_automasking:
-                outputs["identity_selection/{}".format(scale)] = (idxs > 1).float()
-
-            loss += to_optimise.mean()
-
-            mean_disp = disp.mean(2, True).mean(3, True)
-            norm_disp = disp / (mean_disp + 1e-7)
-            smooth_loss = get_smooth_loss(norm_disp, color)
-
-            loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
-            total_loss += loss
-            losses["loss_depth/{}".format(scale)] = loss
-        total_loss = total_loss / self.num_scales
-        losses["loss_depth"] = total_loss
-        if 'seman_gt' in inputs:
+                loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
+                total_loss += loss
+                losses["loss_depth/{}".format(scale)] = loss
+            total_loss = total_loss / self.num_scales
+            losses["loss_depth"] = total_loss
+        if ('seman', 0) in outputs:
             loss_seman, loss_semantoshow = self.semanticLoss(inputs, outputs) # semantic loss is scaled already
             for entry in loss_semantoshow:
                 losses[entry] = loss_semantoshow[entry]
             total_loss = total_loss + self.semanticCoeff * loss_seman
             losses["loss_semantic"] = loss_seman
+        # assert total_loss == 0, "toatal loss is zero"
         losses["loss"] = total_loss
         return losses
 
@@ -737,32 +732,32 @@ class Trainer:
         for l, v in losses.items():
             writer.add_scalar("{}".format(l), v, self.step)
 
-        for j in range(min(4, self.opt.batch_size)):  # write a maxmimum of four images
-            for s in self.opt.scales:
-                for frame_id in self.opt.frame_ids:
-                    writer.add_image(
-                        "color_{}_{}/{}".format(frame_id, s, j),
-                        inputs[("color", frame_id, s)][j].data, self.step)
-                    if s == 0 and frame_id != 0:
-                        writer.add_image(
-                            "color_pred_{}_{}/{}".format(frame_id, s, j),
-                            outputs[("color", frame_id, s)][j].data, self.step)
-
-                writer.add_image(
-                    "disp_{}/{}".format(s, j),
-                    normalize_image(outputs[("disp", s)][j]), self.step)
-
-                if self.opt.predictive_mask:
-                    for f_idx, frame_id in enumerate(self.opt.frame_ids[1:]):
-                        writer.add_image(
-                            "predictive_mask_{}_{}/{}".format(frame_id, s, j),
-                            outputs["predictive_mask"][("disp", s)][j, f_idx][None, ...],
-                            self.step)
-
-                elif not self.opt.disable_automasking:
-                    writer.add_image(
-                        "automask_{}/{}".format(s, j),
-                        outputs["identity_selection/{}".format(s)][j][None, ...], self.step)
+        # for j in range(min(4, self.opt.batch_size)):
+        #     for s in self.opt.scales:
+        #         for frame_id in self.opt.frame_ids:
+        #             writer.add_image(
+        #                 "color_{}_{}/{}".format(frame_id, s, j),
+        #                 inputs[("color", frame_id, s)][j].data, self.step)
+        #             if s == 0 and frame_id != 0:
+        #                 writer.add_image(
+        #                     "color_pred_{}_{}/{}".format(frame_id, s, j),
+        #                     outputs[("color", frame_id, s)][j].data, self.step)
+        #
+        #         writer.add_image(
+        #             "disp_{}/{}".format(s, j),
+        #             normalize_image(outputs[("disp", s)][j]), self.step)
+        #
+        #         if self.opt.predictive_mask:
+        #             for f_idx, frame_id in enumerate(self.opt.frame_ids[1:]):
+        #                 writer.add_image(
+        #                     "predictive_mask_{}_{}/{}".format(frame_id, s, j),
+        #                     outputs["predictive_mask"][("disp", s)][j, f_idx][None, ...],
+        #                     self.step)
+        #
+        #         elif not self.opt.disable_automasking:
+        #             writer.add_image(
+        #                 "automask_{}/{}".format(s, j),
+        #                 outputs["identity_selection/{}".format(s)][j][None, ...], self.step)
 
     def save_opts(self):
         """Save options to disk so we know what we ran this experiment with
