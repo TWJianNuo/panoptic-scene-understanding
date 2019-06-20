@@ -672,7 +672,8 @@ class Trainer:
         for label in args.evalLabels:
             labelName = trainId2label[label].name
             classScoreList[labelName] = getIouScoreForLabel(label, confMatrix, args)
-        losses['mIOU'] = np.mean(np.array(list(classScoreList.values())))
+        vals = np.array(list(classScoreList.values()))
+        losses['mIOU'] = np.mean(vals[np.logical_not(np.isnan(vals))])
 
         # for i in range(pred.shape[0]):
         #     groundTruthNp = gt[i, :, :]
