@@ -190,7 +190,7 @@ class Trainer:
     def set_layers(self):
         """properly handle layer initialization under multiple dataset situation
         """
-        self.semanticLoss = Compute_SemanticLoss()
+        self.semanticLoss = Compute_SemanticLoss(min_scale = self.opt.semantic_minscale[0])
         self.backproject_depth = {}
         self.project_3d = {}
         tags = list()
@@ -315,6 +315,7 @@ class Trainer:
 
                 if "loss_semantic" in losses:
                     loss_seman = losses["loss_semantic"].cpu().data
+                    self.compute_semantic_losses(inputs, outputs, losses)
                 else:
                     loss_seman = -1
                 if "loss_depth" in losses:

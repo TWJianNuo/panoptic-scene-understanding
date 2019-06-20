@@ -266,9 +266,9 @@ def compute_depth_errors(gt, pred):
     return abs_rel, sq_rel, rmse, rmse_log, a1, a2, a3
 
 class Compute_SemanticLoss(nn.Module):
-    def __init__(self, classtype = 19):
+    def __init__(self, classtype = 19, min_scale = 3):
         super(Compute_SemanticLoss, self).__init__()
-        self.scales = range(4)
+        self.scales = list(range(4))[0:min_scale+1]
         # self.cen = nn.CrossEntropyLoss(reduction = 'none')
         self.cen = nn.CrossEntropyLoss()
         self.classtype = classtype # default is cityscape setting 19

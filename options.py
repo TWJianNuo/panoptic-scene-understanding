@@ -89,10 +89,12 @@ class MonodepthOptions:
                                  type=int,
                                  help="frames to load",
                                  default=[0, -1, 1])
-        self.parser.add_argument("--train_semantric",
-                                 type=bool,
-                                 help="train semantic or not",
-                                 default=False)
+        self.parser.add_argument("--semantic_minscale",
+                                 nargs="+",
+                                 type=int,
+                                 help="frames to load",
+                                 choices=[0,1,2,3],
+                                 default=0)
 
         # OPTIMIZATION options
         self.parser.add_argument("--batch_size",
