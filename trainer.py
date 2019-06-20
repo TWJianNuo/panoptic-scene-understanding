@@ -249,11 +249,11 @@ class Trainer:
         joint_dataset_train = initFunc(stacked_train_datasets)
         joint_dataset_val = initFunc(stacked_val_datasets)
 
-        trainSample = my_Sampler(train_sample_num, self.opt.batch_size)
+        self.trainSample = my_Sampler(train_sample_num, self.opt.batch_size) # train sampler is used for multi-stage training
         valSample = my_Sampler(val_sample_num, self.opt.batch_size)
 
         self.train_loader = DataLoader(
-            joint_dataset_train, self.opt.batch_size, shuffle=False, sampler=trainSample,
+            joint_dataset_train, self.opt.batch_size, shuffle=False, sampler=self.trainSample,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
         self.val_loader = DataLoader(
             joint_dataset_val, self.opt.batch_size, shuffle=False, sampler=valSample,
@@ -292,10 +292,9 @@ class Trainer:
         """Run a single epoch of training and validation
         """
         self.model_lr_scheduler.step()
-
         print("Training")
         self.set_train()
-
+        # adjust by changing the sampler
         for batch_idx, inputs in enumerate(self.train_loader):
 
             before_op_time = time.time()
@@ -329,7 +328,7 @@ class Trainer:
                     self.compute_depth_losses(inputs, outputs, losses)
 
                 self.log("train", inputs, outputs, losses)
-                if self.step % 400 == 0:
+                if self.step % 50 == 0:
                     self.val()
 
             self.step += 1
@@ -834,3 +833,15 @@ class Trainer:
             self.model_optimizer.load_state_dict(optimizer_dict)
         else:
             print("Cannot find Adam weights so Adam is randomly initialized")
+
+    def multi_stage_training(self, setting_file_path = None):
+        schedule = list()
+        if setting_file_path is None:
+            # set nothing
+            schedule.append(np.array([1,1,self.opt.num_epochs])) # ratio is 1 by 1
+        else:
+            f = open(setting_file_path, 'r')
+            x = f.readlines()
+            f.close()
+            schedule = schedule + x
+        return schedule
