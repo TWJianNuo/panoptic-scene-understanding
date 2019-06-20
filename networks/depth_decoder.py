@@ -148,7 +148,7 @@ class DepthDecoder(nn.Module):
                     t = t1 - t2
                     tS[i] = t
                 for i in self.scales:
-                    self.outputs[("seman", i)] = self.sfx(self.convs[("semanconv", i)](tS[i]))
+                    self.outputs[("seman", i)] = self.convs[("semanconv", i)](tS[i])
 
         # xdD = {5:x}
         # for i in range(4, self.commonScale, -1):
