@@ -269,6 +269,7 @@ class Compute_SemanticLoss(nn.Module):
     def __init__(self, classtype = 19):
         super(Compute_SemanticLoss, self).__init__()
         self.scales = range(4)
+        # self.cen = nn.CrossEntropyLoss(reduction = 'none')
         self.cen = nn.CrossEntropyLoss()
         self.classtype = classtype # default is cityscape setting 19
     def reorder(self, input, clssDim):
@@ -277,8 +278,8 @@ class Compute_SemanticLoss(nn.Module):
         height = inputs['seman_gt'].shape[2]
         width = inputs['seman_gt'].shape[3]
         mask = self.reorder(inputs['seman_gt'] != 255, 1)
-        # label = self.reorder(inputs['seman_gt'], 1)
-        label = self.reorder(torch.zeros_like(inputs['seman_gt']), 1)
+        label = self.reorder(inputs['seman_gt'], 1)
+        # label = self.reorder(torch.zeros_like(inputs['seman_gt']), 1)
         loss_toshow = dict()
         loss = 0
         for scale in self.scales:
@@ -288,5 +289,11 @@ class Compute_SemanticLoss(nn.Module):
             cenl = self.cen(rearranged[mask[:,0], :], label[mask])
             loss_toshow["loss_seman/{}".format(scale)] = cenl
             loss = loss + cenl
+
+            # just for check
+            # m1 = rearranged[mask[:,0], :]
+            # m2 = label[mask]
+            # m3 = m1.gather(1, m2.view(-1,1))
+            # loss_self = -log()
         loss = loss / len(self.scales)
         return loss, loss_toshow

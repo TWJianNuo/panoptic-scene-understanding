@@ -67,7 +67,7 @@ class DepthDecoder(nn.Module):
 
         self.decoder = nn.ModuleList(list(self.convs.values()))
         self.sigmoid = nn.Sigmoid()
-        self.sfx = nn.Softmax()
+        # self.sfx = nn.Softmax()
 
     def forward(self, input_features, computeSemantic = False, computeDepth = True):
         self.outputs = {}
@@ -101,7 +101,7 @@ class DepthDecoder(nn.Module):
                     y = self.convs[("upconv_seman", i, 1)](y)
                     xdS[i] = y
                 for i in self.scales:
-                    self.outputs[("seman", i)] = self.sfx(self.convs[("semanconv", i)](xdS[i]))
+                    self.outputs[("seman", i)] = self.convs[("semanconv", i)](xdS[i])
         else:
             # Twice inference
             if computeDepth:
