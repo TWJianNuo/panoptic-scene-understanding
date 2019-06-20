@@ -254,6 +254,7 @@ class my_Sampler(Sampler):
         for i in self.iter_list:
             iterIndex = iterIndex + i
         assert len(iterIndex) == np.unique(np.array(iterIndex)).shape[0], "iter error"
+        # print("called with len %d" % self.nums)
         # print ('\tcalling Sampler:__iter__')
         return iter(iterIndex )
 
