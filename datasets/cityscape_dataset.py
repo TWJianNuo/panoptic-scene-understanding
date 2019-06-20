@@ -58,6 +58,7 @@ class CITYSCAPEDataset(SingleDataset):
         targ_f = self.kitti_uf * np.array((self.width, self.height))
         re_size = np.round(self.full_res_shape / cts_focal * targ_f).astype(np.int)
         re_size = (np.round(re_size / self.downR) * self.downR).astype(np.int)
+        re_size = np.array((640, 320),dtype=np.int)
         self.org_width = copy.copy(self.width)
         self.width = re_size[0].item()
         self.height = re_size[1].item()
