@@ -17,6 +17,7 @@ from globalInfo import acGInfo
 from torch.utils.data.sampler import Sampler
 from random import shuffle
 import PIL.Image as pil
+from cityscapesscripts.helpers.labels import *
 # from numba import jit
 
 def readlines(filename):
@@ -270,7 +271,20 @@ def visualize_outpu(inputs, outputs, sv_path, sv_ind):
         combined_img = np.concatenate((img1, img2, img3), axis=0)
         pil.fromarray((combined_img * 255).astype(np.uint8)).save(c_sv_path)
 
-
+def visualize_semantic(img_inds):
+    size = [img_inds.shape[1], img_inds.shape[0]]
+    background = name2label['unlabeled'].color
+    labelImg = np.array(pil.new("RGB", size, background))
+    for id in trainId2label.keys():
+        if id >= 0:
+            label = trainId2label[id].name
+        else:
+            label = 'unlabeled'
+        color = name2label[label].color
+        mask = img_inds == id
+        labelImg[mask, :] = color
+    return pil.fromarray(labelImg)
+    # labelImg = pil.fromarray(labelImg).show()
 # @jit(nopython=True, parallel=True)
 # def labelMapping(inputimg):
 #     transferredImg = np.zeros(inputimg.shape, dtype=np.uint8)

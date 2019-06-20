@@ -635,7 +635,8 @@ class Trainer:
         pred = torch.argmax(pred, dim=1).type(torch.float).unsqueeze(1)
         pred = F.interpolate(pred, [gt.shape[1], gt.shape[2]], mode='nearest')
         pred = pred.squeeze(1).cpu().numpy().astype(np.uint8)
-        # pred = labelMapping(pred)
+        # pred = visualize_semantic(gt[0,:,:]).show()
+        # visualize_semantic(pred[0,:,:]).show()
 
         confMatrix = generateMatrix(args)
         # instStats = generateInstanceStats(args)
@@ -804,10 +805,13 @@ class Trainer:
                 to_save['height'] = self.opt.height
                 to_save['width'] = self.opt.width
                 to_save['use_stereo'] = self.opt.use_stereo
+            cpk_dict = self.generate_cpk(model.state_dict())
+            to_save['cpk_dict'] = cpk_dict # To check load correctness
             torch.save(to_save, save_path)
 
         save_path = os.path.join(save_folder, "{}.pth".format("adam"))
         torch.save(self.model_optimizer.state_dict(), save_path)
+        print(save_folder)
 
     def load_model(self):
         """Load model(s) from disk
@@ -823,9 +827,13 @@ class Trainer:
             path = os.path.join(self.opt.load_weights_folder, "{}.pth".format(n))
             model_dict = self.models[n].state_dict()
             pretrained_dict = torch.load(path)
+            saved_cpk_dict = pretrained_dict['cpk_dict']
             pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
             model_dict.update(pretrained_dict)
             self.models[n].load_state_dict(model_dict)
+            updated_cpk_dict = self.generate_cpk(self.models[n].state_dict())
+            assert torch.abs(torch.mean(torch.Tensor(list(updated_cpk_dict.values()))) - torch.mean(torch.Tensor(list(saved_cpk_dict.values())))) < 1e-3, print("%s check failed" % n)
+
 
         # loading adam state
         optimizer_load_path = os.path.join(self.opt.load_weights_folder, "adam.pth")
@@ -847,3 +855,11 @@ class Trainer:
             f.close()
             schedule = schedule + x
         return schedule
+
+    def generate_cpk(self, model_dict):
+        cpk_dict = dict()
+        for entry in model_dict:
+            cpk_dict[entry] = torch.mean(torch.abs(model_dict[entry].type(torch.double)).unsqueeze(0))
+            # print("%f by %s" % (cpk_dict[entry], entry))
+        return cpk_dict
+
