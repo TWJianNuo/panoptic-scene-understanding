@@ -31,39 +31,52 @@ class DepthDecoder(nn.Module):
 
         # decoder for depth
         self.convs = OrderedDict()
-        for i in range(4, -1, -1):
-            # upconv_0
-            num_ch_in = self.num_ch_enc[-1] if i == 4 else self.num_ch_dec[i + 1]
-            num_ch_out = self.num_ch_dec[i]
-            self.convs[("upconv", i, 0)] = ConvBlock(num_ch_in, num_ch_out)
+        if not self.isSwitch:
+            for i in range(4, -1, -1):
+                # upconv_0
+                num_ch_in = self.num_ch_enc[-1] if i == 4 else self.num_ch_dec[i + 1]
+                num_ch_out = self.num_ch_dec[i]
+                self.convs[("upconv", i, 0)] = ConvBlock(num_ch_in, num_ch_out)
 
-            # upconv_1
-            num_ch_in = self.num_ch_dec[i]
-            if self.use_skips and i > 0:
-                num_ch_in += self.num_ch_enc[i - 1]
-            num_ch_out = self.num_ch_dec[i]
-            self.convs[("upconv", i, 1)] = ConvBlock(num_ch_in, num_ch_out)
+                # upconv_1
+                num_ch_in = self.num_ch_dec[i]
+                if self.use_skips and i > 0:
+                    num_ch_in += self.num_ch_enc[i - 1]
+                num_ch_out = self.num_ch_dec[i]
+                self.convs[("upconv", i, 1)] = ConvBlock(num_ch_in, num_ch_out)
+
+            # For semantics
+            for i in range(4, -1, -1):
+                # upconv_0
+                num_ch_in = self.num_ch_enc[-1] if i == 4 else self.num_ch_dec[i + 1]
+                num_ch_out = self.num_ch_dec[i]
+                self.convs[("upconv_seman", i, 0)] = ConvBlock(num_ch_in, num_ch_out)
+
+                # upconv_1
+                num_ch_in = self.num_ch_dec[i]
+                if self.use_skips and i > 0:
+                    num_ch_in += self.num_ch_enc[i - 1]
+                num_ch_out = self.num_ch_dec[i]
+                self.convs[("upconv_seman", i, 1)] = ConvBlock(num_ch_in, num_ch_out)
+
+        else:
+            for i in range(4, -1, -1):
+                # upconv_0
+                num_ch_in = self.num_ch_enc[-1] if i == 4 else self.num_ch_dec[i + 1]
+                num_ch_out = self.num_ch_dec[i]
+                self.convs[("switchconv", i, 0)] = SwitchBlock(num_ch_in, num_ch_out)
+
+                # upconv_1
+                num_ch_in = self.num_ch_dec[i]
+                if self.use_skips and i > 0:
+                    num_ch_in += self.num_ch_enc[i - 1]
+                num_ch_out = self.num_ch_dec[i]
+                self.convs[("switchconv", i, 1)] = SwitchBlock(num_ch_in, num_ch_out)
 
         for s in self.scales:
-            self.convs[("dispconv", s)] = Conv3x3(self.num_ch_dec[s], self.num_output_channels)
-
-        # For semantics
-        for i in range(4, -1, -1):
-            # upconv_0
-            num_ch_in = self.num_ch_enc[-1] if i == 4 else self.num_ch_dec[i + 1]
-            num_ch_out = self.num_ch_dec[i]
-            self.convs[("upconv_seman", i, 0)] = ConvBlock(num_ch_in, num_ch_out)
-
-            # upconv_1
-            num_ch_in = self.num_ch_dec[i]
-            if self.use_skips and i > 0:
-                num_ch_in += self.num_ch_enc[i - 1]
-            num_ch_out = self.num_ch_dec[i]
-            self.convs[("upconv_seman", i, 1)] = ConvBlock(num_ch_in, num_ch_out)
-
-
-        for s in range(4):
             self.convs[("semanconv", s)] = Conv3x3(self.num_ch_dec[s], self.semanticType)
+        for s in self.scales:
+            self.convs[("dispconv", s)] = Conv3x3(self.num_ch_dec[s], self.num_output_channels)
 
         self.decoder = nn.ModuleList(list(self.convs.values()))
         self.sigmoid = nn.Sigmoid()
@@ -103,6 +116,7 @@ class DepthDecoder(nn.Module):
                 for i in self.scales:
                     self.outputs[("seman", i)] = self.convs[("semanconv", i)](xdS[i])
         else:
+            """
             # Twice inference
             if computeDepth:
                 t = input_features[-1]
@@ -149,38 +163,31 @@ class DepthDecoder(nn.Module):
                     tS[i] = t
                 for i in self.scales:
                     self.outputs[("seman", i)] = self.convs[("semanconv", i)](tS[i])
-
-        # xdD = {5:x}
-        # for i in range(4, self.commonScale, -1):
-        #     x = self.convs[("upconv", i, 0)](x)
-        #     x = [upsample(x)]
-        #     if self.use_skips and i > 0:
-        #         x += [input_features[i - 1]]
-        #     x = torch.cat(x, 1)
-        #     x = self.convs[("upconv", i, 1)](x)
-        #     xdD[i] = x
-        #
-        # if computeDepth:
-        #     xd = xdD[self.commonScale + 1]
-        #     for i in range(self.commonScale, -1, -1):
-        #         xd = self.convs[("upconv", i, 0)](xd)
-        #         xd = [upsample(xd)]
-        #         if self.use_skips and i > 0:
-        #             xd += [input_features[i - 1]]
-        #         xd = torch.cat(xd, 1)
-        #         xd = self.convs[("upconv", i, 1)](xd)
-        #         xdD[i] = xd
-        #     for i in self.scales:
-        #         self.outputs[("disp", i)] = self.sigmoid(self.convs[("dispconv", i)](xdD[i]))
-        # if computeSemantic:
-        #     xs = xdD[self.commonScale + 1]
-        #     for i in range(self.commonScale, -1, -1):
-        #         xs = self.convs[("upconv_seman", i, 0)](xs)
-        #         xs = [upsample(xs)]
-        #         if self.use_skips and i > 0:
-        #             xs += [input_features[i - 1]]
-        #         xs = torch.cat(xs, 1)
-        #         xs = self.convs[("upconv_seman", i, 1)](xs)
-        #         if i in range(self.commonScale):
-        #             self.outputs[("seman", i)] = self.sfx(self.convs[("semanconv", i)](xs))
+            """
+            if computeDepth:
+                t = input_features[-1]
+                tD = dict()
+                for i in range(4, -1, -1):
+                    t = self.convs[("switchconv", i, 0)](t, False)
+                    t = [upsample(t)]
+                    if self.use_skips and i > 0:
+                        t += [input_features[i - 1]]
+                    t = torch.cat(t, 1)
+                    t = self.convs[("switchconv", i, 1)](t, False)
+                    tD[i] = t
+                for i in self.scales:
+                    self.outputs[("disp", i)] = self.sigmoid(self.convs[("dispconv", i)](tD[i]))
+            if computeSemantic:
+                t = input_features[-1]
+                tS = dict()
+                for i in range(4, -1, -1):
+                    t = self.convs[("switchconv", i, 0)](t, True)
+                    t = [upsample(t)]
+                    if self.use_skips and i > 0:
+                        t += [input_features[i - 1]]
+                    t = torch.cat(t, 1)
+                    t = self.convs[("switchconv", i, 1)](t, True)
+                    tS[i] = t
+                for i in self.scales:
+                    self.outputs[("seman", i)] = self.convs[("semanconv", i)](tS[i])
         return self.outputs

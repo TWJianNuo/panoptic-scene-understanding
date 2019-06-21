@@ -102,7 +102,26 @@ def rot_from_axisangle(vec):
 
     return rot
 
+class SwitchBlock(nn.Module):
+    """Layer to perform a convolution followed by ELU
+    """
+    def __init__(self, in_channels, out_channels):
+        super(SwitchBlock, self).__init__()
 
+        self.conv_pos = Conv3x3(in_channels, out_channels)
+        self.conv_neg = Conv3x3(in_channels, out_channels)
+        self.nonlin = nn.ELU(inplace=True)
+
+    def forward(self, x, switch_on = False):
+        pos = self.conv_pos(x)
+        neg = self.conv_neg(x)
+        if switch_on:
+            out = pos - neg
+        else:
+            out = pos + neg
+        out = self.nonlin(out)
+        # out = self.conv(x)
+        return out
 class ConvBlock(nn.Module):
     """Layer to perform a convolution followed by ELU
     """
