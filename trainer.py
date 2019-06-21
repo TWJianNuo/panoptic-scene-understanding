@@ -50,6 +50,7 @@ class Trainer:
         self.num_scales = len(self.opt.scales)
         self.num_input_frames = len(self.opt.frame_ids)
         self.semanticCoeff = 1
+        self.sfx = nn.Softmax()
         # self.num_pose_frames = 2 if self.opt.pose_model_input == "pairs" else self.num_input_frames
 
         assert self.opt.frame_ids[0] == 0, "frame_ids must start with 0"
@@ -246,24 +247,24 @@ class Trainer:
             stacked_val_datasets.append(val_dataset)
 
         initFunc = datasets_dict['joint']
-        joint_dataset_train = initFunc(stacked_train_datasets)
+        self.joint_dataset_train = initFunc(stacked_train_datasets)
         joint_dataset_val = initFunc(stacked_val_datasets)
 
         self.trainSample = my_Sampler(train_sample_num, self.opt.batch_size) # train sampler is used for multi-stage training
         valSample = my_Sampler(val_sample_num, self.opt.batch_size)
 
         self.train_loader = DataLoader(
-            joint_dataset_train, self.opt.batch_size, shuffle=False, sampler=self.trainSample,
+            self.joint_dataset_train, self.opt.batch_size, shuffle=False, sampler=self.trainSample,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
         self.val_loader = DataLoader(
             joint_dataset_val, self.opt.batch_size, shuffle=False, sampler=valSample,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
         self.val_iter = iter(self.val_loader)
 
-        num_train_samples = joint_dataset_train.__len__()
-        self.train_num = joint_dataset_train.__len__()
+        num_train_samples = self.joint_dataset_train.__len__()
+        self.train_num = self.joint_dataset_train.__len__()
         self.val_num = joint_dataset_val.__len__()
-        self.format = joint_dataset_train.format
+        self.format = self.joint_dataset_train.format
         self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
     def set_train(self):
         """Convert all models to training mode
@@ -361,7 +362,7 @@ class Trainer:
         # just for check
         """
         i = 1
-        img = pil.fromarray((inputs[('color', 0, 0)].permute(0,2,3,1)[i,:,:,:].cpu().numpy() * 255).astype(np.uint8))
+        img = pil.fromarray((inputs[("color_aug", 0, 0)].permute(0,2,3,1)[i,:,:,:].cpu().numpy() * 255).astype(np.uint8))
         img.show()
         label = inputs['seman_gt'].permute(0,2,3,1)[i,:,:,0].cpu().numpy()
         visualize_semantic(label).show()
@@ -643,11 +644,11 @@ class Trainer:
         so is only used to give an indication of validation performance
         """
         gt = inputs['seman_gt_eval'].cpu().numpy().astype(np.uint8)
-        pred = outputs[('seman', 0)].detach()
+        pred = self.sfx(outputs[('seman', 0)]).detach()
         pred = torch.argmax(pred, dim=1).type(torch.float).unsqueeze(1)
         pred = F.interpolate(pred, [gt.shape[1], gt.shape[2]], mode='nearest')
         pred = pred.squeeze(1).cpu().numpy().astype(np.uint8)
-        # pred = visualize_semantic(gt[0,:,:]).show()
+        # visualize_semantic(gt[0,:,:]).show()
         # visualize_semantic(pred[0,:,:]).show()
 
         confMatrix = generateMatrix(args)
@@ -817,13 +818,14 @@ class Trainer:
                 to_save['height'] = self.opt.height
                 to_save['width'] = self.opt.width
                 to_save['use_stereo'] = self.opt.use_stereo
+                to_save['item_recList'] = self.joint_dataset_train.item_recList
             # cpk_dict = self.generate_cpk(model.state_dict())
             # to_save['cpk_dict'] = cpk_dict # To check load correctness
             torch.save(to_save, save_path)
 
         save_path = os.path.join(save_folder, "{}.pth".format("adam"))
         torch.save(self.model_optimizer.state_dict(), save_path)
-        print(save_folder)
+        print("save to %s" % save_folder)
 
     def load_model(self):
         """Load model(s) from disk
@@ -839,6 +841,8 @@ class Trainer:
             path = os.path.join(self.opt.load_weights_folder, "{}.pth".format(n))
             model_dict = self.models[n].state_dict()
             pretrained_dict = torch.load(path)
+            if n == 'encoder':
+                self.item_recList = pretrained_dict['item_recList']
             # saved_cpk_dict = pretrained_dict['cpk_dict']
             pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
             model_dict.update(pretrained_dict)

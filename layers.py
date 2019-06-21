@@ -12,6 +12,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import time
+from utils import *
 
 def disp_to_depth(disp, min_depth, max_depth):
     """Convert network's sigmoid output into depth prediction
@@ -289,23 +290,32 @@ class Compute_SemanticLoss(nn.Module):
         super(Compute_SemanticLoss, self).__init__()
         self.scales = list(range(4))[0:min_scale+1]
         # self.cen = nn.CrossEntropyLoss(reduction = 'none')
-        self.cen = nn.CrossEntropyLoss()
+        self.cen = nn.CrossEntropyLoss(ignore_index = 255)
         self.classtype = classtype # default is cityscape setting 19
     def reorder(self, input, clssDim):
         return input.permute(2,3,1,0).contiguous().view(-1, clssDim)
     def forward(self, inputs, outputs):
         height = inputs['seman_gt'].shape[2]
         width = inputs['seman_gt'].shape[3]
-        mask = self.reorder(inputs['seman_gt'] != 255, 1)
-        label = self.reorder(inputs['seman_gt'], 1)
+        label = inputs['seman_gt']
+        # mask = self.reorder(inputs['seman_gt'] != 255, 1)
+        # label = self.reorder(inputs['seman_gt'], 1)
         # label = self.reorder(torch.zeros_like(inputs['seman_gt']), 1)
+        # Just for check
+        # s = inputs['seman_gt'][0, 0, :, :].cpu().numpy()
+        # visualize_semantic(s).show()
+        # img = pil.fromarray((inputs[("color_aug", 0, 0)].permute(0,2,3,1)[0,:,:,:].cpu().numpy() * 255).astype(np.uint8))
+        # img.show()
+        # visualize_semantic(pred[0,:,:]).show()
+
         loss_toshow = dict()
         loss = 0
         for scale in self.scales:
             entry = ('seman', scale)
             scaled = F.interpolate(outputs[entry], size = [height, width], mode = 'bilinear')
-            rearranged = self.reorder(scaled, self.classtype)
-            cenl = self.cen(rearranged[mask[:,0], :], label[mask])
+            # rearranged = self.reorder(scaled, self.classtype)
+            # cenl = self.cen(rearranged[mask[:,0], :], label[mask])
+            cenl = self.cen(scaled, label.squeeze(1))
             loss_toshow["loss_seman/{}".format(scale)] = cenl
             loss = loss + cenl
 

@@ -74,9 +74,10 @@ class DepthDecoder(nn.Module):
                 self.convs[("switchconv", i, 1)] = SwitchBlock(num_ch_in, num_ch_out)
 
         for s in self.scales:
-            self.convs[("semanconv", s)] = Conv3x3(self.num_ch_dec[s], self.semanticType)
-        for s in self.scales:
             self.convs[("dispconv", s)] = Conv3x3(self.num_ch_dec[s], self.num_output_channels)
+
+        for s in self.scales:
+            self.convs[("semanconv", s)] = Conv3x3(self.num_ch_dec[s], self.semanticType)
 
         self.decoder = nn.ModuleList(list(self.convs.values()))
         self.sigmoid = nn.Sigmoid()
