@@ -31,7 +31,7 @@ class JointDataset(data.Dataset):
         self.sample_num = np.zeros(len(self.datasets), dtype=np.int)
         self.dec_bar = np.zeros(len(self.datasets), dtype=np.int)
         self.format = list()
-        self.item_recList = list()
+        # self.item_recList = list()
         for idx, sDataset in enumerate(self.datasets):
             self.sample_num[idx] = sDataset.__len__()
             self.format.append((sDataset.tag, sDataset.height, sDataset.width))
@@ -44,5 +44,5 @@ class JointDataset(data.Dataset):
         bulk_ind = np.digitize(index, self.dec_bar)
         assert bulk_ind < self.dataset_num, "Joint dataset read error"
         spec_ind = np.int(index - np.sum(self.sample_num[0 : bulk_ind]))
-        self.item_recList.append(index)
+        # self.item_recList.append(index)
         return self.datasets[bulk_ind].__getitem__(spec_ind)

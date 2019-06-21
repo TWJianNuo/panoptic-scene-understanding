@@ -288,7 +288,7 @@ class Trainer:
             self.run_epoch()
             if (self.epoch + 1) % self.opt.save_frequency == 0:
                 self.save_model()
-            self.set_dataset()
+            # self.set_dataset()
 
     def run_epoch(self):
         """Run a single epoch of training and validation
@@ -331,7 +331,7 @@ class Trainer:
                     self.compute_depth_losses(inputs, outputs, losses)
 
                 self.log("train", inputs, outputs, losses)
-                if self.step % 50 == 0:
+                if self.step % 100 == 0:
                     self.val()
 
             self.step += 1
@@ -818,7 +818,7 @@ class Trainer:
                 to_save['height'] = self.opt.height
                 to_save['width'] = self.opt.width
                 to_save['use_stereo'] = self.opt.use_stereo
-                to_save['item_recList'] = self.joint_dataset_train.item_recList
+                # to_save['item_recList'] = self.joint_dataset_train.item_recList
             # cpk_dict = self.generate_cpk(model.state_dict())
             # to_save['cpk_dict'] = cpk_dict # To check load correctness
             torch.save(to_save, save_path)
@@ -841,8 +841,8 @@ class Trainer:
             path = os.path.join(self.opt.load_weights_folder, "{}.pth".format(n))
             model_dict = self.models[n].state_dict()
             pretrained_dict = torch.load(path)
-            if n == 'encoder':
-                self.item_recList = pretrained_dict['item_recList']
+            # if n == 'encoder':
+            #     self.item_recList = pretrained_dict['item_recList']
             # saved_cpk_dict = pretrained_dict['cpk_dict']
             pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
             model_dict.update(pretrained_dict)
