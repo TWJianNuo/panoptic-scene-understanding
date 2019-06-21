@@ -99,9 +99,12 @@ class CITYSCAPEDataset(SingleDataset):
         rescale_fac = (cts_baseline * cts_unit_focal * self.width) / (kitti_baseline * kitti_unit_focal * self.org_width)
         return rescale_fac
 
-    def get_seman(self, folder):
+    def get_seman(self, folder, do_flip):
         seman_path, ins_path = self.get_ins_seman_path(folder)
-        seman_label = np.array(self.loader(seman_path))[:,:,0]
+        color = self.loader(seman_path)
+        if do_flip:
+            color = color.transpose(pil.FLIP_LEFT_RIGHT)
+        seman_label = np.array(color)[:,:,0]
         # ins_label = np.array(self.loader(ins_path))
         # pil.fromarray(((seman_label == 1)*255).astype(np.uint8)).show()
         return seman_label

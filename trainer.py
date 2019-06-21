@@ -358,6 +358,17 @@ class Trainer:
 
 
         features = self.models["encoder"](inputs["color_aug", 0, 0])
+        # just for check
+        """
+        i = 1
+        img = pil.fromarray((inputs[('color', 0, 0)].permute(0,2,3,1)[i,:,:,:].cpu().numpy() * 255).astype(np.uint8))
+        img.show()
+        label = inputs['seman_gt'].permute(0,2,3,1)[i,:,:,0].cpu().numpy()
+        visualize_semantic(label).show()
+        """
+
+
+
         # Switch between semantic and depth estimation
         if 'seman_gt' in inputs:
             outputs = self.models["depth"](features, computeSemantic = True, computeDepth = False)
@@ -806,8 +817,8 @@ class Trainer:
                 to_save['height'] = self.opt.height
                 to_save['width'] = self.opt.width
                 to_save['use_stereo'] = self.opt.use_stereo
-            cpk_dict = self.generate_cpk(model.state_dict())
-            to_save['cpk_dict'] = cpk_dict # To check load correctness
+            # cpk_dict = self.generate_cpk(model.state_dict())
+            # to_save['cpk_dict'] = cpk_dict # To check load correctness
             torch.save(to_save, save_path)
 
         save_path = os.path.join(save_folder, "{}.pth".format("adam"))
@@ -832,7 +843,7 @@ class Trainer:
             pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
             model_dict.update(pretrained_dict)
             self.models[n].load_state_dict(model_dict)
-            updated_cpk_dict = self.generate_cpk(self.models[n].state_dict())
+            # updated_cpk_dict = self.generate_cpk(self.models[n].state_dict())
             # assert torch.abs(torch.mean(torch.Tensor(list(updated_cpk_dict.values()))) - torch.mean(torch.Tensor(list(saved_cpk_dict.values())))) < 1e-3, print("%s check failed" % n)
 
 
@@ -857,10 +868,9 @@ class Trainer:
             schedule = schedule + x
         return schedule
 
-    def generate_cpk(self, model_dict):
-        cpk_dict = dict()
-        for entry in model_dict:
-            cpk_dict[entry] = torch.mean(torch.abs(model_dict[entry].type(torch.double)).unsqueeze(0))
-            # print("%f by %s" % (cpk_dict[entry], entry))
-        return cpk_dict
+    # def generate_cpk(self, model_dict):
+    #     cpk_dict = dict()
+    #     for entry in model_dict:
+    #         cpk_dict[entry] = torch.mean(torch.abs(model_dict[entry].type(torch.double)).unsqueeze(0))
+    #     return cpk_dict
 

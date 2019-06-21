@@ -61,7 +61,7 @@ class KITTIDataset(SingleDataset):
         rescale_fac = 1
         return rescale_fac
 
-    def get_seman(self, folder):
+    def get_seman(self, folder, do_flip):
         raise ValueError
 
     def check_seman(self):

@@ -184,10 +184,7 @@ def generateCityScapeSplit_riginalSize(datasetLoc, splitFileLoc):
             split_comp = imagePath.split("/")
             writeComp1 = os.path.join(split_comp[-3], split_comp[-2])
             writeComp2 = split_comp[-1]
-            if np.random.random(1) > 0.5:
-                writeComp3 = 'l'
-            else:
-                writeComp3 = 'r'
+            writeComp3 = 'l'
             writel = writeComp1 + '/' + writeComp2.split('.')[0][0:len(writeComp2.split('.')[0]) - len(
                 writeComp2.split('.')[0].split('_')[-1])] + " " + format(index, '010') + " " + writeComp3 + "\n"
             fileVal.writelines(writel)
