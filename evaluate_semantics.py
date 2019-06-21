@@ -96,19 +96,20 @@ def evaluate(opt):
     encoder.eval()
     depth_decoder.cuda()
     depth_decoder.eval()
-
+    sfx = torch.nn.Softmax(dim=1)
 
     print("Evaluation starts")
 
     confMatrix = generateMatrix(args)
     nbPixels = 0
+    count255 = 0
     with torch.no_grad():
         for idx, inputs in enumerate(dataloader):
             input_color = inputs[("color", 0, 0)].cuda()
-            outputs = depth_decoder(encoder(input_color))
+            outputs = depth_decoder(encoder(input_color),computeSemantic = True, computeDepth = False)
 
             gt = inputs['seman_gt_eval'].cpu().numpy().astype(np.uint8)
-            pred = F.sfx(outputs[('seman', 0)]).detach()
+            pred = sfx(outputs[('seman', 0)]).detach()
             pred = torch.argmax(pred, dim=1).type(torch.float).unsqueeze(1)
             pred = F.interpolate(pred, [gt.shape[1], gt.shape[2]], mode='nearest')
             pred = pred.squeeze(1).cpu().numpy().astype(np.uint8)
@@ -124,7 +125,7 @@ def evaluate(opt):
             encoded = (groundTruthNp.astype(np.int32) * encoding_value) + predictionNp
 
             values, cnt = np.unique(encoded, return_counts=True)
-            count255 = 0
+
             for value, c in zip(values, cnt):
                 pred_id = value % encoding_value
                 gt_id = int((value - pred_id) / encoding_value)
@@ -135,7 +136,6 @@ def evaluate(opt):
                     printError("Unknown label with id {:}".format(gt_id))
                 confMatrix[gt_id][pred_id] += c
             print("Finish %dth batch" % idx)
-
     if confMatrix.sum() +  count255!= nbPixels:
         printError(
             'Number of analyzed pixels and entries in confusion matrix disagree: contMatrix {}, pixels {}'.format(
