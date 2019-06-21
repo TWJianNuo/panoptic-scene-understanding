@@ -288,7 +288,7 @@ class Trainer:
             self.run_epoch()
             if (self.epoch + 1) % self.opt.save_frequency == 0:
                 self.save_model()
-            # self.set_dataset()
+            self.set_dataset()
 
     def run_epoch(self):
         """Run a single epoch of training and validation
