@@ -13,6 +13,7 @@ from options import MonodepthOptions
 import datasets
 import networks
 import cityscapesscripts.helpers.labels
+from utils import *
 from cityscapesscripts.evaluation.evalPixelLevelSemanticLabeling import *
 
 cv2.setNumThreads(0)  # This speeds up evaluation 5x on our unix systems (OpenCV 3.3.1)
@@ -79,14 +80,21 @@ def evaluate(opt):
 
     encoder_dict = torch.load(encoder_path)
 
-    dataset = datasets.CITYSCAPERawDataset(opt.data_path, filenames,
-                                       encoder_dict['height'], encoder_dict['width'],
-                                       [0], 4, is_train=False, tag=opt.dataset)
+    if opt.dataset == 'cityscape':
+        dataset = datasets.CITYSCAPERawDataset(opt.data_path, filenames,
+                                           encoder_dict['height'], encoder_dict['width'],
+                                           [0], 4, is_train=False, tag=opt.dataset)
+    elif opt.dataset == 'kitti':
+        dataset = datasets.KITTISemanticDataset(opt.data_path, filenames,
+                                           encoder_dict['height'], encoder_dict['width'],
+                                           [0], 4, is_train=False, tag=opt.dataset)
+    else:
+        raise ValueError("No predefined dataset")
     dataloader = DataLoader(dataset, 16, shuffle=False, num_workers=opt.num_workers,
                             pin_memory=True, drop_last=False)
 
     encoder = networks.ResnetEncoder(opt.num_layers, False)
-    depth_decoder = networks.DepthDecoder(encoder.num_ch_enc, isSwitch=False)
+    depth_decoder = networks.DepthDecoder(encoder.num_ch_enc, isSwitch=(opt.switchMode == 'on'))
 
     model_dict = encoder.state_dict()
     encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})

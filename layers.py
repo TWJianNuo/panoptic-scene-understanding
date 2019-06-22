@@ -114,8 +114,8 @@ class SwitchBlock(nn.Module):
         self.nonlin = nn.ELU(inplace=True)
 
     def forward(self, x, switch_on = False):
-        pos = self.conv_pos(x)
-        neg = self.conv_neg(x)
+        pos = self.nonlin(self.conv_pos(x))
+        neg = self.nonlin(self.conv_neg(x))
         if switch_on:
             out = pos - neg
         else:

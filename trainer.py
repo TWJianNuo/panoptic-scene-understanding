@@ -331,7 +331,7 @@ class Trainer:
                     self.compute_depth_losses(inputs, outputs, losses)
 
                 self.log("train", inputs, outputs, losses)
-                if self.step % 100 == 0:
+                if self.step % 50 == 0:
                     self.val()
 
             self.step += 1
