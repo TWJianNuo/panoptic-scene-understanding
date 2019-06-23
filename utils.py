@@ -286,6 +286,11 @@ def visualize_semantic(img_inds):
         labelImg[mask, :] = color
     return pil.fromarray(labelImg)
     # labelImg = pil.fromarray(labelImg).show()
+def visualize_rgbTensor(pred, view_ind = 0):
+    pred = pred.permute(0,2,3,1)
+    pred = (pred[view_ind, :, :, :].detach().cpu().numpy() * 255).astype(np.uint8)
+    pil.fromarray(pred).show()
+
 # @jit(nopython=True, parallel=True)
 # def labelMapping(inputimg):
 #     transferredImg = np.zeros(inputimg.shape, dtype=np.uint8)

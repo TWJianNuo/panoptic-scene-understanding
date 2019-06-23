@@ -27,8 +27,8 @@ import networks
 from utils import my_Sampler
 import cityscapesscripts.helpers.labels
 from cityscapesscripts.evaluation.evalPixelLevelSemanticLabeling import *
-import torch.backends.cudnn as cudnn
-cudnn.benchmark = True
+# import torch.backends.cudnn as cudnn
+# cudnn.benchmark = True
 class Trainer:
     def __init__(self, options):
         self.opt = options
@@ -515,9 +515,9 @@ class Trainer:
                     outputs[("sample", frame_id, scale)],
                     padding_mode="border")
                 # visualize_outpu(inputs, outputs, '/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/recon_rg_img/kitti', np.random.randint(0, 100000, 1)[0])
-                if not self.opt.disable_automasking:
-                    outputs[("color_identity", frame_id, scale)] = \
-                        inputs[("color", frame_id, source_scale)]
+                # if not self.opt.disable_automasking:
+                #     outputs[("color_identity", frame_id, scale)] = \
+                #         inputs[("color", frame_id, source_scale)]
 
     def compute_reprojection_loss(self, pred, target):
         """Computes reprojection loss between a batch of predicted and target images
