@@ -27,8 +27,8 @@ import networks
 from utils import my_Sampler
 import cityscapesscripts.helpers.labels
 from cityscapesscripts.evaluation.evalPixelLevelSemanticLabeling import *
-
-
+import torch.backends.cudnn as cudnn
+cudnn.benchmark = True
 class Trainer:
     def __init__(self, options):
         self.opt = options
