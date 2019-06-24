@@ -101,7 +101,7 @@ class DepthDecoder(nn.Module):
                     x = self.convs[("upconv", i, 1)](x)
                     xdD[i] = x
                 for i in self.scales:
-                    self.outputs[("disp", i)] = self.sigmoid(self.convs[("dispconv", i)](xdD[i]))
+                    self.outputs[("mul_disp", i)] = self.sigmoid(self.convs[("dispconv", i)](xdD[i]))
 
             y = input_features[-1]
             if computeSemantic:
@@ -117,54 +117,6 @@ class DepthDecoder(nn.Module):
                 for i in self.scales:
                     self.outputs[("seman", i)] = self.convs[("semanconv", i)](xdS[i])
         else:
-            """
-            # Twice inference
-            if computeDepth:
-                t = input_features[-1]
-                tD = dict()
-                for i in range(4, -1, -1):
-                    t1 = self.convs[("upconv", i, 0)](t)
-                    t1 = [upsample(t1)]
-                    if self.use_skips and i > 0:
-                        t1 += [input_features[i - 1]]
-                    t1 = torch.cat(t1, 1)
-                    t1 = self.convs[("upconv", i, 1)](t1)
-
-                    t2 = self.convs[("upconv_seman", i, 0)](t)
-                    t2 = [upsample(t2)]
-                    if self.use_skips and i > 0:
-                        t2 += [input_features[i - 1]]
-                    t2 = torch.cat(t2, 1)
-                    t2 = self.convs[("upconv_seman", i, 1)](t2)
-
-                    t = t1 + t2
-                    tD[i] = t
-                for i in self.scales:
-                    self.outputs[("disp", i)] = self.sigmoid(self.convs[("dispconv", i)](tD[i]))
-
-            if computeSemantic:
-                t = input_features[-1]
-                tS = dict()
-                for i in range(4, -1, -1):
-                    t1 = self.convs[("upconv", i, 0)](t)
-                    t1 = [upsample(t1)]
-                    if self.use_skips and i > 0:
-                        t1 += [input_features[i - 1]]
-                    t1 = torch.cat(t1, 1)
-                    t1 = self.convs[("upconv", i, 1)](t1)
-
-                    t2 = self.convs[("upconv_seman", i, 0)](t)
-                    t2 = [upsample(t2)]
-                    if self.use_skips and i > 0:
-                        t2 += [input_features[i - 1]]
-                    t2 = torch.cat(t2, 1)
-                    t2 = self.convs[("upconv_seman", i, 1)](t2)
-
-                    t = t1 - t2
-                    tS[i] = t
-                for i in self.scales:
-                    self.outputs[("seman", i)] = self.convs[("semanconv", i)](tS[i])
-            """
             if computeDepth:
                 t = input_features[-1]
                 tD = dict()
@@ -177,7 +129,7 @@ class DepthDecoder(nn.Module):
                     t = self.convs[("switchconv", i, 1)](t, False)
                     tD[i] = t
                 for i in self.scales:
-                    self.outputs[("disp", i)] = self.sigmoid(self.convs[("dispconv", i)](tD[i]))
+                    self.outputs[("mul_disp", i)] = self.sigmoid(self.convs[("dispconv", i)](tD[i]))
             if computeSemantic:
                 t = input_features[-1]
                 tS = dict()

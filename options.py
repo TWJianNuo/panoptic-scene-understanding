@@ -140,6 +140,9 @@ class MonodepthOptions:
                                  help="turn on switch mode or not",
                                  default="off",
                                  choices=["on", "off"])
+        # self.parser.add_argument("--self_occlusionLoss",
+        #                          help="if set, do self occlusion",
+        #                          action="store_true")
         # self.parser.add_argument("--semanticScales",
         #                          type=int,
         #                          help="scales used in semantic decoder branch",

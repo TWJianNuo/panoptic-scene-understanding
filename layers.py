@@ -285,6 +285,41 @@ def compute_depth_errors(gt, pred):
 
     return abs_rel, sq_rel, rmse, rmse_log, a1, a2, a3
 
+# class compute_occlu_mask(nn.Module):
+#     def __init__(self, suppress_param = 1.0, batchNum = 12, inputSizes = torch.Tensor([[(512, 256)],[192,640]])):
+#         super(compute_occlu_mask, self).__init__()
+#         self.suppress_param = suppress_param
+#         self.sigmoid = nn.Sigmoid()
+#         self.batchNum = 12
+#         self.inputSizes = inputSizes # [[cityscape], [kitti]]
+#         self.batchBias = list()
+#
+#         meshgrid = np.meshgrid(range(self.width), range(self.height), indexing='xy')
+#         self.id_coords = np.stack(meshgrid, axis=0).astype(np.float32)
+#         self.id_coords = nn.Parameter(torch.from_numpy(self.id_coords))
+#
+#         self.ones = nn.Parameter(torch.ones(self.batch_size, 1, self.height * self.width))
+#
+#         self.pix_coords = torch.unsqueeze(torch.stack(
+#             [self.id_coords[0].view(-1), self.id_coords[1].view(-1)], 0), 0)
+#         self.pix_coords = self.pix_coords.repeat(batch_size, 1, 1)
+#         self.pix_coords = nn.Parameter(torch.cat([self.pix_coords, self.ones], 1))
+#         for i in range(self.inputSizes.shape[0]):
+#             bias = list()
+#             for j in range(self.batchNum):
+#                 bias.append(torch.ones(self.inputSizes[0] * self.inputSizes[1], dtype=torch.int64))
+#             bias = torch.cat(bias, dim=0).unsqueeze(1)
+#             self.batchBias.append(bias)
+#     def forward(self, depth, self_sampled_depth):
+#         a = 1
+
+class Merge_MultDisp(nn.Module):
+    def __init__(self):
+        # Merge multiple channel disparity to single channel according to semantic
+        super(Merge_MultDisp, self).__init__()
+    def forward(self, inputs):
+        if 'semantic_gt' in inputs:
+            a = 1
 class Compute_SemanticLoss(nn.Module):
     def __init__(self, classtype = 19, min_scale = 3):
         super(Compute_SemanticLoss, self).__init__()
@@ -298,9 +333,6 @@ class Compute_SemanticLoss(nn.Module):
         height = inputs['seman_gt'].shape[2]
         width = inputs['seman_gt'].shape[3]
         label = inputs['seman_gt']
-        # mask = self.reorder(inputs['seman_gt'] != 255, 1)
-        # label = self.reorder(inputs['seman_gt'], 1)
-        # label = self.reorder(torch.zeros_like(inputs['seman_gt']), 1)
         # Just for check
         # s = inputs['seman_gt'][0, 0, :, :].cpu().numpy()
         # visualize_semantic(s).show()

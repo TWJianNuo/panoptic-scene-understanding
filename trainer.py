@@ -27,8 +27,8 @@ import networks
 from utils import my_Sampler
 import cityscapesscripts.helpers.labels
 from cityscapesscripts.evaluation.evalPixelLevelSemanticLabeling import *
-# import torch.backends.cudnn as cudnn
-# cudnn.benchmark = True
+import torch.backends.cudnn as cudnn
+cudnn.benchmark = True
 class Trainer:
     def __init__(self, options):
         self.opt = options
@@ -66,40 +66,9 @@ class Trainer:
         self.parameters_to_train += list(self.models["encoder"].parameters())
 
         self.models["depth"] = networks.DepthDecoder(
-            self.models["encoder"].num_ch_enc, self.opt.scales, isSwitch=self.switchMode)
+            self.models["encoder"].num_ch_enc, self.opt.scales, isSwitch=self.switchMode, num_output_channels = 19)
         self.models["depth"].to(self.device)
         self.parameters_to_train += list(self.models["depth"].parameters())
-
-        # self.models["semantic"] = networks.CombinedDecoder(
-        #     self.models["encoder"].num_ch_enc, self.opt.scales)
-        # self.models["semantic"].to(self.device)
-        # self.parameters_to_train += list(self.models["semantic"].parameters())
-
-        # if self.use_pose_net:
-        #     if self.opt.pose_model_type == "separate_resnet":
-        #         self.models["pose_encoder"] = networks.ResnetEncoder(
-        #             self.opt.num_layers,
-        #             self.opt.weights_init == "pretrained",
-        #             num_input_images=self.num_pose_frames)
-        #
-        #         self.models["pose_encoder"].to(self.device)
-        #         self.parameters_to_train += list(self.models["pose_encoder"].parameters())
-        #
-        #         self.models["pose"] = networks.PoseDecoder(
-        #             self.models["pose_encoder"].num_ch_enc,
-        #             num_input_features=1,
-        #             num_frames_to_predict_for=2)
-        #
-        #     elif self.opt.pose_model_type == "shared":
-        #         self.models["pose"] = networks.PoseDecoder(
-        #             self.models["encoder"].num_ch_enc, self.num_pose_frames)
-        #
-        #     elif self.opt.pose_model_type == "posecnn":
-        #         self.models["pose"] = networks.PoseCNN(
-        #             self.num_input_frames if self.opt.pose_model_input == "all" else 2)
-        #
-        #     self.models["pose"].to(self.device)
-        #     self.parameters_to_train += list(self.models["pose"].parameters())
 
         if self.opt.predictive_mask:
             # Our implementation of the predictive masking baseline has the the same architecture
@@ -122,41 +91,6 @@ class Trainer:
         print("Training is using:\n  ", self.device)
 
         self.set_dataset()
-        # data
-        # datasets_dict = {
-        #     "kitti": datasets.KITTIRAWDataset,
-        #     "kitti_odom": datasets.KITTIOdomDataset,
-        #     "cityscape": datasets.CITYSCAPERawDataset
-        #                  }
-        # self.dataset = datasets_dict[self.opt.dataset]
-        #
-        # fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, "{}_files.txt")
-        #
-        # train_filenames = readlines(fpath.format("train"))
-        # val_filenames = readlines(fpath.format("val"))
-        # img_ext = '.png' if self.opt.png else '.jpg'
-        #
-        # num_train_samples = len(train_filenames)
-        # self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
-        #
-        # train_dataset = self.dataset(
-        #     self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
-        #     self.opt.frame_ids, 4, tag=self.opt.dataset, is_train=True, img_ext=img_ext, require_seman=self.opt.require_semantic)
-        # self.train_loader = DataLoader(
-        #     train_dataset, self.opt.batch_size, True,
-        #     num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
-        # val_dataset = self.dataset(
-        #     self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
-        #     self.opt.frame_ids, 4, tag=self.opt.dataset, is_train=False, img_ext=img_ext)
-        # self.val_loader = DataLoader(
-        #     val_dataset, self.opt.batch_size, True,
-        #     num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
-        # self.val_iter = iter(self.val_loader)
-
-        # Change height and weight accordingly
-        # self.opt.height = train_dataset.height
-        # self.opt.width = train_dataset.width
-
         self.writers = {}
         for mode in ["train", "val"]:
             self.writers[mode] = SummaryWriter(os.path.join(self.log_path, mode))
@@ -166,18 +100,6 @@ class Trainer:
             self.ssim.to(self.device)
 
         self.set_layers()
-        # self.backproject_depth = {}
-        # self.project_3d = {}
-        # for scale in self.opt.scales:
-        #     h = self.opt.height // (2 ** scale)
-        #     w = self.opt.width // (2 ** scale)
-        #
-        #     self.backproject_depth[scale] = BackprojectDepth(self.opt.batch_size, h, w)
-        #     self.backproject_depth[scale].to(self.device)
-        #
-        #     self.project_3d[scale] = Project3D(self.opt.batch_size, h, w)
-        #     self.project_3d[scale].to(self.device)
-
         self.depth_metric_names = [
             "de/abs_rel", "de/sq_rel", "de/rms", "de/log_rms", "da/a1", "da/a2", "da/a3"]
 
@@ -343,21 +265,6 @@ class Trainer:
             if not(key == 'height' or key == 'width' or key == 'tag'):
                 inputs[key] = ipt.to(self.device)
 
-        # if self.opt.pose_model_type == "shared":
-        #     all_color_aug = torch.cat([inputs[("color_aug", i, 0)] for i in self.opt.frame_ids])
-        #     all_features = self.models["encoder"](all_color_aug)
-        #     all_features = [torch.split(f, self.opt.batch_size) for f in all_features]
-        #
-        #     features = {}
-        #     for i, k in enumerate(self.opt.frame_ids):
-        #         features[k] = [f[i] for f in all_features]
-        #
-        #     outputs = self.models["depth"](features[0])
-        # else:
-        #     features = self.models["encoder"](inputs["color_aug", 0, 0])
-        #     outputs = self.models["depth"](features)
-
-
         features = self.models["encoder"](inputs["color_aug", 0, 0])
         # just for check
         """
@@ -368,78 +275,28 @@ class Trainer:
         visualize_semantic(label).show()
         """
 
-
-
         # Switch between semantic and depth estimation
-        if 'seman_gt' in inputs:
-            outputs = self.models["depth"](features, computeSemantic = True, computeDepth = False)
-        else:
-            outputs = self.models["depth"](features, computeSemantic = False, computeDepth = True)
-            if self.opt.predictive_mask:
-                outputs["predictive_mask"] = self.models["predictive_mask"](features)
+        outputs = dict()
+        if self.is_compute_semantic(inputs):
+            outputs.update(self.models["depth"](features, computeSemantic = True, computeDepth = False))
+        if self.is_compute_depth(inputs):
+            outputs.update(self.models["depth"](features, computeSemantic = False, computeDepth = True))
             self.generate_images_pred(inputs, outputs)
         losses = self.compute_losses(inputs, outputs)
 
         return outputs, losses
-
-    """
-    def predict_poses(self, inputs, features):
-        outputs = {}
-        if self.num_pose_frames == 2:
-            # In this setting, we compute the pose to each source frame via a
-            # separate forward pass through the pose network.
-
-            # select what features the pose network takes as input
-            if self.opt.pose_model_type == "shared":
-                pose_feats = {f_i: features[f_i] for f_i in self.opt.frame_ids}
-            else:
-                pose_feats = {f_i: inputs["color_aug", f_i, 0] for f_i in self.opt.frame_ids}
-
-            for f_i in self.opt.frame_ids[1:]:
-                if f_i != "s":
-                    # To maintain ordering we always pass frames in temporal order
-                    if f_i < 0:
-                        pose_inputs = [pose_feats[f_i], pose_feats[0]]
-                    else:
-                        pose_inputs = [pose_feats[0], pose_feats[f_i]]
-
-                    if self.opt.pose_model_type == "separate_resnet":
-                        pose_inputs = [self.models["pose_encoder"](torch.cat(pose_inputs, 1))]
-                    elif self.opt.pose_model_type == "posecnn":
-                        pose_inputs = torch.cat(pose_inputs, 1)
-
-                    axisangle, translation = self.models["pose"](pose_inputs)
-                    outputs[("axisangle", 0, f_i)] = axisangle
-                    outputs[("translation", 0, f_i)] = translation
-
-                    # Invert the matrix if the frame id is negative
-                    outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters(
-                        axisangle[:, 0], translation[:, 0], invert=(f_i < 0))
-
+    def is_compute_depth(self, inputs):
+        # if there are stereo images, we compute depth
+        if ('color', 0, 0) in inputs and ('color', 's', 0) in inputs:
+            return True
         else:
-            # Here we input all frames to the pose net (and predict all poses) together
-            if self.opt.pose_model_type in ["separate_resnet", "posecnn"]:
-                pose_inputs = torch.cat(
-                    [inputs[("color_aug", i, 0)] for i in self.opt.frame_ids if i != "s"], 1)
-
-                if self.opt.pose_model_type == "separate_resnet":
-                    pose_inputs = [self.models["pose_encoder"](pose_inputs)]
-
-            elif self.opt.pose_model_type == "shared":
-                pose_inputs = [features[i] for i in self.opt.frame_ids if i != "s"]
-
-            axisangle, translation = self.models["pose"](pose_inputs)
-
-            for i, f_i in enumerate(self.opt.frame_ids[1:]):
-                if f_i != "s":
-                    outputs[("axisangle", 0, f_i)] = axisangle
-                    outputs[("translation", 0, f_i)] = translation
-                    outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters(
-                        axisangle[:, i], translation[:, i])
-
-        return outputs
-    """
-
+            return False
+    def is_compute_semantic(self, inputs):
+        # if there are semantic ground truth, we compute semantics
+        if 'seman_gt' in inputs:
+            return True
+        else:
+            return False
     def val(self):
         """Validate the model on a single minibatch
         """
@@ -453,9 +310,9 @@ class Trainer:
         with torch.no_grad():
             outputs, losses = self.process_batch(inputs)
 
-            if "depth_gt" in inputs:
+            if "depth_gt" in inputs and ('depth', 0, 0) in outputs:
                 self.compute_depth_losses(inputs, outputs, losses)
-            if 'seman_gt_eval' in inputs:
+            if 'seman_gt_eval' in inputs and ('semantic', 0, 0) in outputs:
                 self.compute_semantic_losses(inputs, outputs, losses)
             self.log("val", inputs, outputs, losses)
             del inputs, outputs, losses
@@ -510,6 +367,7 @@ class Trainer:
 
                 outputs[("sample", frame_id, scale)] = pix_coords
 
+
                 outputs[("color", frame_id, scale)] = F.grid_sample(
                     inputs[("color", frame_id, source_scale)],
                     outputs[("sample", frame_id, scale)],
@@ -518,6 +376,18 @@ class Trainer:
                 # if not self.opt.disable_automasking:
                 #     outputs[("color_identity", frame_id, scale)] = \
                 #         inputs[("color", frame_id, source_scale)]
+                # if self.opt.self_occlusionLoss:
+                #     self_depth_diff = torch.zeros(outputs[("depth", 0, scale)].shape)
+                #     pix_coords_round = torch.round(pix_coords)
+                #     a = F.grid_sample(
+                #         outputs[("depth", 0, scale)],
+                #         outputs[("sample", frame_id, scale)],
+                #         padding_mode="zeros").view(-1)
+                #     outputs[("self_sampled_depth", scale)] = F.grid_sample(
+                #         outputs[("depth", 0, scale)],
+                #         outputs[("sample", frame_id, scale)],
+                #         padding_mode="border")
+        a = 1
 
     def compute_reprojection_loss(self, pred, target):
         """Computes reprojection loss between a batch of predicted and target images
@@ -609,9 +479,6 @@ class Trainer:
                 else:
                     to_optimise, idxs = torch.min(combined, dim=1)
 
-                if not self.opt.disable_automasking:
-                    outputs["identity_selection/{}".format(scale)] = (idxs > 1).float()
-
                 loss += to_optimise.mean()
 
                 mean_disp = disp.mean(2, True).mean(3, True)
@@ -623,6 +490,7 @@ class Trainer:
                 losses["loss_depth/{}".format(scale)] = loss
             total_loss = total_loss / self.num_scales
             losses["loss_depth"] = total_loss
+
         if ('seman', 0) in outputs:
             loss_seman, loss_semantoshow = self.semanticLoss(inputs, outputs) # semantic loss is scaled already
             for entry in loss_semantoshow:
@@ -689,32 +557,6 @@ class Trainer:
             classScoreList[labelName] = getIouScoreForLabel(label, confMatrix, args)
         vals = np.array(list(classScoreList.values()))
         losses['mIOU'] = np.mean(vals[np.logical_not(np.isnan(vals))])
-
-        # for i in range(pred.shape[0]):
-        #     groundTruthNp = gt[i, :, :]
-        #     predictionNp = pred[i, :, :]
-        #     imgWidth = groundTruthNp.shape[1]
-        #     imgHeight = groundTruthNp.shape[0]
-        #     nbPixels = imgWidth * imgHeight
-        #
-        #     encoding_value = max(groundTruthNp.max(), predictionNp.max()).astype(np.int32) + 1
-        #     encoded = (groundTruthNp.astype(np.int32) * encoding_value) + predictionNp
-        #
-        #     values, cnt = np.unique(encoded, return_counts=True)
-        #
-        #     for value, c in zip(values, cnt):
-        #         pred_id = value % encoding_value
-        #         gt_id = int((value - pred_id) / encoding_value)
-        #         if pred_id == 255 or gt_id == 255:
-        #             continue
-        #         if not gt_id in args.evalLabels:
-        #             printError("Unknown label with id {:}".format(gt_id))
-        #         confMatrix[gt_id][pred_id] += c
-        #
-        #     if confMatrix.sum() != nbPixels:
-        #         printError(
-        #             'Number of analyzed pixels and entries in confusion matrix disagree: contMatrix {}, pixels {}'.format(
-        #                 confMatrix.sum(), nbPixels))
 
     def compute_depth_losses(self, inputs, outputs, losses):
         """Compute depth metrics, to allow monitoring during training
@@ -841,15 +683,9 @@ class Trainer:
             path = os.path.join(self.opt.load_weights_folder, "{}.pth".format(n))
             model_dict = self.models[n].state_dict()
             pretrained_dict = torch.load(path)
-            # if n == 'encoder':
-            #     self.item_recList = pretrained_dict['item_recList']
-            # saved_cpk_dict = pretrained_dict['cpk_dict']
             pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
             model_dict.update(pretrained_dict)
             self.models[n].load_state_dict(model_dict)
-            # updated_cpk_dict = self.generate_cpk(self.models[n].state_dict())
-            # assert torch.abs(torch.mean(torch.Tensor(list(updated_cpk_dict.values()))) - torch.mean(torch.Tensor(list(saved_cpk_dict.values())))) < 1e-3, print("%s check failed" % n)
-
 
         # loading adam state
         optimizer_load_path = os.path.join(self.opt.load_weights_folder, "adam.pth")
@@ -871,10 +707,3 @@ class Trainer:
             f.close()
             schedule = schedule + x
         return schedule
-
-    # def generate_cpk(self, model_dict):
-    #     cpk_dict = dict()
-    #     for entry in model_dict:
-    #         cpk_dict[entry] = torch.mean(torch.abs(model_dict[entry].type(torch.double)).unsqueeze(0))
-    #     return cpk_dict
-
