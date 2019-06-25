@@ -275,6 +275,7 @@ def visualize_outpu(inputs, outputs, sv_path, sv_ind):
         pil.fromarray((combined_img * 255).astype(np.uint8)).save(c_sv_path)
 
 def visualize_semantic(img_inds):
+    # please input numpy array
     size = [img_inds.shape[1], img_inds.shape[0]]
     background = name2label['unlabeled'].color
     labelImg = np.array(pil.new("RGB", size, background))

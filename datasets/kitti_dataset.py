@@ -29,6 +29,7 @@ class KITTIDataset(SingleDataset):
         # K(1, 1) = 7.215377e+02 / 375
         self.full_res_shape = (1242, 375)
         self.side_map = {"2": 2, "3": 3, "l": 2, "r": 3}
+        self.mask = None # Cityscape requires mask
 
     def check_depth(self):
         line = self.filenames[0].split()

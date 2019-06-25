@@ -217,7 +217,7 @@ def upsample(x):
     return F.interpolate(x, scale_factor=2, mode="nearest")
 
 
-def get_smooth_loss(disp, img, disp_weights = None):
+def get_smooth_loss(disp, img, disp_weights = None, mask = None):
     """Computes the smoothness loss for a disparity image
     The color image is used for edge-aware smoothness
     """
@@ -231,9 +231,9 @@ def get_smooth_loss(disp, img, disp_weights = None):
     grad_disp_x *= torch.exp(-grad_img_x)
     grad_disp_y *= torch.exp(-grad_img_y)
 
-    if disp_weights is None:
-        grad_disp_x = torch.sum(grad_disp_x * disp_weights[:,:,:,0:disp_weights.shape[3]-1], dim=1, keepdim=True)
-        grad_disp_y = torch.sum(grad_disp_y * disp_weights[:,:,0:disp_weights.shape[2]-1,:], dim=1, keepdim=True)
+    # if disp_weights is not None:
+    #     grad_disp_x = torch.sum(grad_disp_x * disp_weights[:,0:19,:,0:disp_weights.shape[3]-1], dim=1, keepdim=True)
+    #     grad_disp_y = torch.sum(grad_disp_y * disp_weights[:,0:19,0:disp_weights.shape[2]-1,:], dim=1, keepdim=True)
         # grad_disp = grad_disp_x.mean() + grad_disp_y.mean()
 
     return grad_disp_x.mean() + grad_disp_y.mean()
@@ -330,7 +330,7 @@ class Merge_MultDisp(nn.Module):
         self.sfx = nn.Softmax(dim=1).cuda()
         # self.weights_time = 0
 
-    def forward(self, inputs, outputs):
+    def forward(self, inputs, outputs, predict = False):
         height = inputs[('color', 0, 0)].shape[2]
         width = inputs[('color', 0, 0)].shape[3]
         outputFormat = [self.batchSize, self.semanType + 1, height, width]
@@ -350,7 +350,7 @@ class Merge_MultDisp(nn.Module):
         # weighTimeStart = torch.cuda.Event(enable_timing=True)
         # weighTimeEnd = torch.cuda.Event(enable_timing=True)
 
-        if 'seman_gt' in inputs:
+        if 'seman_gt' in inputs and not predict:
             indexRef = deepcopy(inputs['seman_gt'])
             indexRef[indexRef == 255] = self.semanType
             disp_weights = torch.zeros(outputFormat).permute(0, 2, 3, 1).contiguous().view(-1, outputFormat[1]).cuda()

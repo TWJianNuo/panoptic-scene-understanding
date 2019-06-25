@@ -222,6 +222,10 @@ class SingleDataset(data.Dataset):
 
             inputs["stereo_T"] = torch.from_numpy(stereo_T)
 
+        if self.mask is not None:
+            for entry in self.mask:
+                inputs[entry] = self.mask[entry]
+
         # additional info
         inputs["height"] = self.height
         inputs["width"] = self.width

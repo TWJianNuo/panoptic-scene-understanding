@@ -472,21 +472,15 @@ class Trainer:
                         # save both images, and do min all at once below
                         identity_reprojection_loss = identity_reprojection_losses
 
-                elif self.opt.predictive_mask:
-                    # use the predicted mask
-                    mask = outputs["predictive_mask"]["disp", scale]
-                    if not self.opt.v1_multiscale:
-                        # mask = F.interpolate(
-                        #     mask, [self.opt.height, self.opt.width],
-                        #     mode="bilinear", align_corners=False)
-                        mask = F.interpolate(
-                            mask, [inputs["height"], inputs["width"]],
-                            mode="bilinear", align_corners=False)
-                    reprojection_losses *= mask
-
-                    # add a loss pushing mask to 1 (using nn.BCELoss for stability)
-                    weighting_loss = 0.2 * nn.BCELoss()(mask, torch.ones(mask.shape).cuda())
-                    loss += weighting_loss.mean()
+                # elif self.opt.predictive_mask:
+                #     mask = outputs["predictive_mask"]["disp", scale]
+                #     if not self.opt.v1_multiscale:
+                #         mask = F.interpolate(
+                #             mask, [inputs["height"], inputs["width"]],
+                #             mode="bilinear", align_corners=False)
+                #     reprojection_losses *= mask
+                #     weighting_loss = 0.2 * nn.BCELoss()(mask, torch.ones(mask.shape).cuda())
+                #     loss += weighting_loss.mean()
 
                 if self.opt.avg_reprojection:
                     reprojection_loss = reprojection_losses.mean(1, keepdim=True)
@@ -507,6 +501,11 @@ class Trainer:
                 else:
                     to_optimise, idxs = torch.min(combined, dim=1)
 
+                # if it's cityscape dataset, need to mask out ego vehicle
+                if ('mask', 0) in inputs:
+                    to_optimise = to_optimise.masked_select(inputs[('mask', 0)])
+                else:
+                    to_optimise = to_optimise
                 loss += to_optimise.mean()
 
 
@@ -522,7 +521,11 @@ class Trainer:
                 norm_disp = mult_disp / (mean_disp + 1e-7)
                 # mean_disp = disp.mean(2, True).mean(3, True)
                 # norm_disp = disp / (mean_disp + 1e-7)
-                smooth_loss = get_smooth_loss(norm_disp, color, outputs['disp_weights'])
+                # if ('mask', scale) in inputs:
+                #     smooth_loss = get_smooth_loss(norm_disp, color, outputs['disp_weights'], inputs[('mask', scale)])
+                # else:
+                #     smooth_loss = get_smooth_loss(norm_disp, color, outputs['disp_weights'])
+                smooth_loss = get_smooth_loss(norm_disp, color)
                 # end_dispSmooth.record()
                 # torch.cuda.synchronize()
                 # self.timeSpan_dispSmooth =  self.timeSpan_dispSmooth + start_dispSmooth.elapsed_time(end_dispSmooth)

@@ -10,6 +10,7 @@ import os
 import skimage.transform
 import numpy as np
 import PIL.Image as pil
+import torch
 
 from kitti_utils import generate_depth_map
 from .SingleDataset import SingleDataset
@@ -32,8 +33,18 @@ class CITYSCAPEDataset(SingleDataset):
         self.full_res_shape = (2048, 1024) # decide to use 512 by 256
         self.side_map = {"l": "leftImg8bit", "r": "rightImg8bit"}
         self.change_resize()
+        self.mask = None
+        self.load_mask()
         # self.ctsImg_sz_rec = dict()
 
+    def load_mask(self):
+        imgPath = 'assets/cityscapemask.png'
+        self.mask = dict()
+        maskImg = self.loader(imgPath)
+        for i in range(self.num_scales):
+            mask = np.array(maskImg.resize((int(self.width / (2**i)), int(self.height / (2**i))), pil.NEAREST))[:,:,0]
+            mask = (mask < 1).astype(np.uint8)
+            self.mask[('mask', i)] = torch.from_numpy(mask)
     def check_depth(self):
         return False
 
