@@ -12,6 +12,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import time
+from copy import deepcopy
 from utils import *
 
 def disp_to_depth(disp, min_depth, max_depth):
@@ -216,18 +217,24 @@ def upsample(x):
     return F.interpolate(x, scale_factor=2, mode="nearest")
 
 
-def get_smooth_loss(disp, img):
+def get_smooth_loss(disp, img, disp_weights = None):
     """Computes the smoothness loss for a disparity image
     The color image is used for edge-aware smoothness
     """
+    repeat_time = disp.shape[1]
     grad_disp_x = torch.abs(disp[:, :, :, :-1] - disp[:, :, :, 1:])
     grad_disp_y = torch.abs(disp[:, :, :-1, :] - disp[:, :, 1:, :])
 
-    grad_img_x = torch.mean(torch.abs(img[:, :, :, :-1] - img[:, :, :, 1:]), 1, keepdim=True)
-    grad_img_y = torch.mean(torch.abs(img[:, :, :-1, :] - img[:, :, 1:, :]), 1, keepdim=True)
+    grad_img_x = torch.mean(torch.abs(img[:, :, :, :-1] - img[:, :, :, 1:]), 1, keepdim=True).repeat(1,repeat_time,1,1)
+    grad_img_y = torch.mean(torch.abs(img[:, :, :-1, :] - img[:, :, 1:, :]), 1, keepdim=True).repeat(1,repeat_time,1,1)
 
     grad_disp_x *= torch.exp(-grad_img_x)
     grad_disp_y *= torch.exp(-grad_img_y)
+
+    if disp_weights is None:
+        grad_disp_x = torch.sum(grad_disp_x * disp_weights[:,:,:,0:disp_weights.shape[3]-1], dim=1, keepdim=True)
+        grad_disp_y = torch.sum(grad_disp_y * disp_weights[:,:,0:disp_weights.shape[2]-1,:], dim=1, keepdim=True)
+        # grad_disp = grad_disp_x.mean() + grad_disp_y.mean()
 
     return grad_disp_x.mean() + grad_disp_y.mean()
 
@@ -314,12 +321,51 @@ def compute_depth_errors(gt, pred):
 #         a = 1
 
 class Merge_MultDisp(nn.Module):
-    def __init__(self):
+    def __init__(self, scales, semanType = 19, batchSize = 6):
         # Merge multiple channel disparity to single channel according to semantic
         super(Merge_MultDisp, self).__init__()
-    def forward(self, inputs):
-        if 'semantic_gt' in inputs:
-            a = 1
+        self.scales = scales
+        self.semanType = semanType
+        self.batchSize = batchSize
+        self.sfx = nn.Softmax(dim=1).cuda()
+
+    def forward(self, inputs, outputs):
+        height = inputs[('color', 0, 0)].shape[2]
+        width = inputs[('color', 0, 0)].shape[3]
+        outputFormat = [self.batchSize, self.semanType + 1, height, width]
+
+        for scale in self.scales:
+            se_gt_name = ('seman', scale)
+            seg = F.interpolate(outputs[se_gt_name], size=[height, width], mode='bilinear', align_corners=False)
+            outputs[se_gt_name] = seg
+
+            disp_pred_name = ('mul_disp', scale)
+            disp = F.interpolate(outputs[disp_pred_name], [height, width], mode="bilinear", align_corners=False)
+            disp = torch.cat([disp, torch.mean(disp, dim=1, keepdim=True)], dim=1)
+            outputs[disp_pred_name] = disp
+
+        if 'seman_gt' in inputs:
+            indexRef = deepcopy(inputs['seman_gt'])
+            indexRef[indexRef == 255] = self.semanType
+            disp_weights = torch.zeros(outputFormat).permute(0, 2, 3, 1).contiguous().view(-1, outputFormat[1]).cuda()
+            indexRef = indexRef.permute(0, 2, 3, 1).contiguous().view(-1, 1)
+            disp_weights[torch.arange(disp_weights.shape[0]), indexRef[:, 0]] = 1
+            disp_weights = disp_weights.view(outputFormat[0], outputFormat[2], outputFormat[3],
+                                             outputFormat[1]).permute(0, 3, 1, 2)
+        elif ('seman', 0) in outputs:
+            # indexRef = torch.argmax(self.sfx(outputs[('seman', 0)]), dim=1, keepdim=True)
+            disp_weights = torch.cat([self.sfx(outputs[('seman', 0)]),torch.zeros(outputFormat[0], outputFormat[2], outputFormat[3]).unsqueeze(1).cuda()], dim=1)
+
+        outputs['disp_weights'] = disp_weights
+
+        # if 'seman_gt' in inputs:
+        #     disp_weights = outputs['disp_weights']
+        # elif ('seman', 0) in outputs:
+        #     disp_weights = torch.cat([self.sfx(outputs[('seman', 0)]),torch.zeros(outputFormat[0], outputFormat[2], outputFormat[3]).unsqueeze(1).cuda()], dim=1)
+        for scale in self.scales:
+            ref_name = ('mul_disp', scale)
+            # outputs[('disp', scale)] = F.interpolate(torch.sum(outputs[ref_name] * disp_weights, dim=1, keepdim=True), [int(height/(2**scale)), int(width/(2**scale))], mode='bilinear', align_corners=False)
+            outputs[('disp', scale)] = torch.sum(outputs[ref_name] * disp_weights, dim=1, keepdim=True)
 class Compute_SemanticLoss(nn.Module):
     def __init__(self, classtype = 19, min_scale = 3):
         super(Compute_SemanticLoss, self).__init__()
@@ -330,8 +376,8 @@ class Compute_SemanticLoss(nn.Module):
     def reorder(self, input, clssDim):
         return input.permute(2,3,1,0).contiguous().view(-1, clssDim)
     def forward(self, inputs, outputs):
-        height = inputs['seman_gt'].shape[2]
-        width = inputs['seman_gt'].shape[3]
+        # height = inputs['seman_gt'].shape[2]
+        # width = inputs['seman_gt'].shape[3]
         label = inputs['seman_gt']
         # Just for check
         # s = inputs['seman_gt'][0, 0, :, :].cpu().numpy()
@@ -344,7 +390,8 @@ class Compute_SemanticLoss(nn.Module):
         loss = 0
         for scale in self.scales:
             entry = ('seman', scale)
-            scaled = F.interpolate(outputs[entry], size = [height, width], mode = 'bilinear')
+            scaled = outputs[entry]
+            # scaled = F.interpolate(outputs[entry], size = [height, width], mode = 'bilinear')
             # rearranged = self.reorder(scaled, self.classtype)
             # cenl = self.cen(rearranged[mask[:,0], :], label[mask])
             cenl = self.cen(scaled, label.squeeze(1))

@@ -114,6 +114,7 @@ class Trainer:
         """properly handle layer initialization under multiple dataset situation
         """
         self.semanticLoss = Compute_SemanticLoss(min_scale = self.opt.semantic_minscale[0])
+        self.merge_multDisp = Merge_MultDisp(self.opt.scales, batchSize = self.opt.batch_size)
         self.backproject_depth = {}
         self.project_3d = {}
         tags = list()
@@ -277,21 +278,20 @@ class Trainer:
 
         # Switch between semantic and depth estimation
         outputs = dict()
-        if self.is_compute_semantic(inputs):
-            outputs.update(self.models["depth"](features, computeSemantic = True, computeDepth = False))
-        if self.is_compute_depth(inputs):
-            outputs.update(self.models["depth"](features, computeSemantic = False, computeDepth = True))
-            self.generate_images_pred(inputs, outputs)
+        outputs.update(self.models["depth"](features, computeSemantic = True, computeDepth = False))
+        outputs.update(self.models["depth"](features, computeSemantic = False, computeDepth = True))
+        self.merge_multDisp(inputs, outputs)
+        self.generate_images_pred(inputs, outputs)
         losses = self.compute_losses(inputs, outputs)
 
         return outputs, losses
-    def is_compute_depth(self, inputs):
+    def is_regress_dispLoss(self, inputs):
         # if there are stereo images, we compute depth
         if ('color', 0, 0) in inputs and ('color', 's', 0) in inputs:
             return True
         else:
             return False
-    def is_compute_semantic(self, inputs):
+    def is_regress_semanticLoss(self, inputs):
         # if there are semantic ground truth, we compute semantics
         if 'seman_gt' in inputs:
             return True
@@ -325,8 +325,8 @@ class Trainer:
         Generated images are saved into the `outputs` dictionary.
         """
         tag = inputs['tag'][0]
-        height = inputs["height"][0]
-        width = inputs["width"][0]
+        # height = inputs["height"][0]
+        # width = inputs["width"][0]
         for scale in self.opt.scales:
             disp = outputs[("disp", scale)]
             if self.opt.v1_multiscale:
@@ -334,7 +334,7 @@ class Trainer:
             else:
                 # disp = F.interpolate(
                 #     disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
-                disp = F.interpolate(disp, [height, width], mode="bilinear", align_corners=False)
+                # disp = F.interpolate(disp, [height, width], mode="bilinear", align_corners=False)
                 source_scale = 0
 
             _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
@@ -347,18 +347,6 @@ class Trainer:
                     T = inputs["stereo_T"]
                 else:
                     T = outputs[("cam_T_cam", 0, frame_id)]
-
-
-                # if self.opt.pose_model_type == "posecnn":
-                #
-                #     axisangle = outputs[("axisangle", 0, frame_id)]
-                #     translation = outputs[("translation", 0, frame_id)]
-                #
-                #     inv_depth = 1 / depth
-                #     mean_inv_depth = inv_depth.mean(3, True).mean(2, True)
-                #
-                #     T = transformation_from_parameters(
-                #         axisangle[:, 0], translation[:, 0] * mean_inv_depth[:, 0], frame_id < 0)
 
                 cam_points = self.backproject_depth[(tag, source_scale)](
                     depth, inputs[("inv_K", source_scale)])
@@ -387,7 +375,6 @@ class Trainer:
                 #         outputs[("depth", 0, scale)],
                 #         outputs[("sample", frame_id, scale)],
                 #         padding_mode="border")
-        a = 1
 
     def compute_reprojection_loss(self, pred, target):
         """Computes reprojection loss between a batch of predicted and target images
@@ -409,7 +396,8 @@ class Trainer:
         losses = {}
         total_loss = 0
 
-        if ('disp', 0) in outputs:
+        # if ('disp', 0) in outputs:
+        if self.is_regress_dispLoss(inputs):
             for scale in self.opt.scales:
                 loss = 0
                 reprojection_losses = []
@@ -419,7 +407,7 @@ class Trainer:
                 else:
                     source_scale = 0
 
-                disp = outputs[("disp", scale)]
+                # disp = outputs[("disp", scale)]
                 color = inputs[("color", 0, scale)]
                 target = inputs[("color", 0, source_scale)]
 
@@ -481,9 +469,15 @@ class Trainer:
 
                 loss += to_optimise.mean()
 
-                mean_disp = disp.mean(2, True).mean(3, True)
-                norm_disp = disp / (mean_disp + 1e-7)
-                smooth_loss = get_smooth_loss(norm_disp, color)
+                mult_disp = outputs[('mul_disp', scale)]
+                mean_disp = mult_disp.mean(2, True).mean(3, True)
+                norm_disp = mult_disp / (mean_disp + 1e-7)
+                norm_disp = F.interpolate(norm_disp,
+                              [int(norm_disp.shape[2] / (2 ** scale)), int(norm_disp.shape[3] / (2 ** scale))], mode='bilinear',
+                              align_corners=False)
+                # mean_disp = disp.mean(2, True).mean(3, True)
+                # norm_disp = disp / (mean_disp + 1e-7)
+                smooth_loss = get_smooth_loss(norm_disp, color, outputs['disp_weights'])
 
                 loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
                 total_loss += loss
@@ -491,15 +485,13 @@ class Trainer:
             total_loss = total_loss / self.num_scales
             losses["loss_depth"] = total_loss
 
-        if ('seman', 0) in outputs:
+        # if ('seman', 0) in outputs:
+        if self.is_regress_semanticLoss(inputs):
             loss_seman, loss_semantoshow = self.semanticLoss(inputs, outputs) # semantic loss is scaled already
             for entry in loss_semantoshow:
                 losses[entry] = loss_semantoshow[entry]
             total_loss = total_loss + self.semanticCoeff * loss_seman
-            # total_loss = torch.mean(torch.exp(-outputs[('seman', 0)][:,0,:,:]))
             losses["loss_semantic"] = loss_seman
-            # losses["loss_semantic"] = total_loss
-        # assert total_loss == 0, "toatal loss is zero"
         losses["loss"] = total_loss
         return losses
 
