@@ -328,12 +328,14 @@ class Merge_MultDisp(nn.Module):
         self.semanType = semanType
         self.batchSize = batchSize
         self.sfx = nn.Softmax(dim=1).cuda()
+        # self.weights_time = 0
 
     def forward(self, inputs, outputs):
         height = inputs[('color', 0, 0)].shape[2]
         width = inputs[('color', 0, 0)].shape[3]
         outputFormat = [self.batchSize, self.semanType + 1, height, width]
 
+        tmpDispDic = dict()
         for scale in self.scales:
             se_gt_name = ('seman', scale)
             seg = F.interpolate(outputs[se_gt_name], size=[height, width], mode='bilinear', align_corners=False)
@@ -342,7 +344,11 @@ class Merge_MultDisp(nn.Module):
             disp_pred_name = ('mul_disp', scale)
             disp = F.interpolate(outputs[disp_pred_name], [height, width], mode="bilinear", align_corners=False)
             disp = torch.cat([disp, torch.mean(disp, dim=1, keepdim=True)], dim=1)
-            outputs[disp_pred_name] = disp
+            tmpDispDic[disp_pred_name] = disp
+            # outputs[disp_pred_name] = disp
+
+        # weighTimeStart = torch.cuda.Event(enable_timing=True)
+        # weighTimeEnd = torch.cuda.Event(enable_timing=True)
 
         if 'seman_gt' in inputs:
             indexRef = deepcopy(inputs['seman_gt'])
@@ -357,7 +363,7 @@ class Merge_MultDisp(nn.Module):
             disp_weights = torch.cat([self.sfx(outputs[('seman', 0)]),torch.zeros(outputFormat[0], outputFormat[2], outputFormat[3]).unsqueeze(1).cuda()], dim=1)
 
         outputs['disp_weights'] = disp_weights
-
+        # weighTimeStart.record()
         # if 'seman_gt' in inputs:
         #     disp_weights = outputs['disp_weights']
         # elif ('seman', 0) in outputs:
@@ -365,7 +371,12 @@ class Merge_MultDisp(nn.Module):
         for scale in self.scales:
             ref_name = ('mul_disp', scale)
             # outputs[('disp', scale)] = F.interpolate(torch.sum(outputs[ref_name] * disp_weights, dim=1, keepdim=True), [int(height/(2**scale)), int(width/(2**scale))], mode='bilinear', align_corners=False)
-            outputs[('disp', scale)] = torch.sum(outputs[ref_name] * disp_weights, dim=1, keepdim=True)
+            # outputs[('disp', scale)] = torch.sum(outputs[ref_name] * disp_weights, dim=1, keepdim=True)
+            outputs[('disp', scale)] = torch.sum(tmpDispDic[ref_name] * disp_weights, dim=1, keepdim=True)
+        # weighTimeEnd.record()
+        # torch.cuda.synchronize()
+        # self.weights_time = self.weights_time + weighTimeStart.elapsed_time(weighTimeEnd)
+
 class Compute_SemanticLoss(nn.Module):
     def __init__(self, classtype = 19, min_scale = 3):
         super(Compute_SemanticLoss, self).__init__()

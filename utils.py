@@ -20,6 +20,8 @@ import PIL.Image as pil
 from cityscapesscripts.helpers.labels import *
 # from numba import jit
 
+
+
 def readlines(filename):
     """Read all the lines in a text file and return as a list
     """
@@ -290,6 +292,9 @@ def visualize_rgbTensor(pred, view_ind = 0):
     pred = pred.permute(0,2,3,1)
     pred = (pred[view_ind, :, :, :].detach().cpu().numpy() * 255).astype(np.uint8)
     pil.fromarray(pred).show()
+
+
+
 
 # @jit(nopython=True, parallel=True)
 # def labelMapping(inputimg):

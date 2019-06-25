@@ -27,8 +27,11 @@ import networks
 from utils import my_Sampler
 import cityscapesscripts.helpers.labels
 from cityscapesscripts.evaluation.evalPixelLevelSemanticLabeling import *
-import torch.backends.cudnn as cudnn
-cudnn.benchmark = True
+# import torch.backends.cudnn as cudnn
+# cudnn.benchmark = True
+
+
+
 class Trainer:
     def __init__(self, options):
         self.opt = options
@@ -110,6 +113,11 @@ class Trainer:
 
         self.save_opts()
 
+        # self.timeSpan_decoder = 0
+        # self.timeSpan_mergeLayer = 0
+        # self.timeSpan_predict = 0
+        # self.timeSpan_loss = 0
+        # self.timeSpan_dispSmooth = 0
     def set_layers(self):
         """properly handle layer initialization under multiple dataset situation
         """
@@ -257,6 +265,9 @@ class Trainer:
                 if self.step % 50 == 0:
                     self.val()
 
+            # timeCount = np.array((self.timeSpan_decoder, self.timeSpan_mergeLayer, self.timeSpan_predict, self.timeSpan_loss))
+            # timeCount = timeCount / np.sum(timeCount)
+            # print("Time util: | decoder:%f | mergeLayer:%f | prediction:%f | loss:%f | smoothLoss:%f | weighRatio:%f |" % (timeCount[0], timeCount[1], timeCount[2], timeCount[3], self.timeSpan_dispSmooth/self.timeSpan_loss, self.merge_multDisp.weights_time / self.timeSpan_mergeLayer))
             self.step += 1
 
     def process_batch(self, inputs):
@@ -276,13 +287,42 @@ class Trainer:
         visualize_semantic(label).show()
         """
 
+        # start_decoder = torch.cuda.Event(enable_timing=True)
+        # end_decoder = torch.cuda.Event(enable_timing=True)
         # Switch between semantic and depth estimation
+        # start_decoder.record()
         outputs = dict()
         outputs.update(self.models["depth"](features, computeSemantic = True, computeDepth = False))
         outputs.update(self.models["depth"](features, computeSemantic = False, computeDepth = True))
+        # end_decoder.record()
+        # torch.cuda.synchronize()
+        # self.timeSpan_decoder = self.timeSpan_decoder + start_decoder.elapsed_time(end_decoder)
+
+
+        # start_merge = torch.cuda.Event(enable_timing=True)
+        # end_merge = torch.cuda.Event(enable_timing=True)
+        # start_merge.record()
         self.merge_multDisp(inputs, outputs)
+        # end_merge.record()
+        # torch.cuda.synchronize()
+        # self.timeSpan_mergeLayer = self.timeSpan_mergeLayer + start_merge.elapsed_time(end_merge)
+
+
+        # start_predict = torch.cuda.Event(enable_timing=True)
+        # end_predict = torch.cuda.Event(enable_timing=True)
+        # start_predict.record()
         self.generate_images_pred(inputs, outputs)
+        # end_predict.record()
+        # torch.cuda.synchronize()
+        # self.timeSpan_predict = self.timeSpan_predict + start_predict.elapsed_time(end_predict)
+
+        # start_loss = torch.cuda.Event(enable_timing=True)
+        # end_loss = torch.cuda.Event(enable_timing=True)
+        # start_loss.record()
         losses = self.compute_losses(inputs, outputs)
+        # end_loss.record()
+        # torch.cuda.synchronize()
+        # self.timeSpan_loss = self.timeSpan_loss + start_loss.elapsed_time(end_loss)
 
         return outputs, losses
     def is_regress_dispLoss(self, inputs):
@@ -312,7 +352,7 @@ class Trainer:
 
             if "depth_gt" in inputs and ('depth', 0, 0) in outputs:
                 self.compute_depth_losses(inputs, outputs, losses)
-            if 'seman_gt_eval' in inputs and ('semantic', 0, 0) in outputs:
+            if 'seman_gt_eval' in inputs and ('seman', 0) in outputs:
                 self.compute_semantic_losses(inputs, outputs, losses)
             self.log("val", inputs, outputs, losses)
             del inputs, outputs, losses
@@ -469,15 +509,23 @@ class Trainer:
 
                 loss += to_optimise.mean()
 
+
+                # start_dispSmooth = torch.cuda.Event(enable_timing=True)
+                # end_dispSmooth = torch.cuda.Event(enable_timing=True)
+
+                # start_dispSmooth.record()
                 mult_disp = outputs[('mul_disp', scale)]
+                # mult_disp = F.interpolate(mult_disp,
+                #               [int(mult_disp.shape[2] / (2 ** scale)), int(mult_disp.shape[3] / (2 ** scale))], mode='bilinear',
+                #               align_corners=False)
                 mean_disp = mult_disp.mean(2, True).mean(3, True)
                 norm_disp = mult_disp / (mean_disp + 1e-7)
-                norm_disp = F.interpolate(norm_disp,
-                              [int(norm_disp.shape[2] / (2 ** scale)), int(norm_disp.shape[3] / (2 ** scale))], mode='bilinear',
-                              align_corners=False)
                 # mean_disp = disp.mean(2, True).mean(3, True)
                 # norm_disp = disp / (mean_disp + 1e-7)
                 smooth_loss = get_smooth_loss(norm_disp, color, outputs['disp_weights'])
+                # end_dispSmooth.record()
+                # torch.cuda.synchronize()
+                # self.timeSpan_dispSmooth =  self.timeSpan_dispSmooth + start_dispSmooth.elapsed_time(end_dispSmooth)
 
                 loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
                 total_loss += loss
