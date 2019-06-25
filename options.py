@@ -140,6 +140,10 @@ class MonodepthOptions:
                                  help="turn on switch mode or not",
                                  default="off",
                                  choices=["on", "off"])
+        self.parser.add_argument("--semanticCoeff",
+                                 type=float,
+                                 help="Change semantic loss ratio",
+                                 default=1.0,)
         # self.parser.add_argument("--is_server",
         #                          help="if set, indicate train on server",
         #                          action="store_true")

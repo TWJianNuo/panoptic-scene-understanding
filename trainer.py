@@ -49,7 +49,7 @@ class Trainer:
 
         self.num_scales = len(self.opt.scales)
         self.num_input_frames = len(self.opt.frame_ids)
-        self.semanticCoeff = 1
+        self.semanticCoeff = self.opt.semanticCoeff
         self.sfx = nn.Softmax()
         # self.num_pose_frames = 2 if self.opt.pose_model_input == "pairs" else self.num_input_frames
 
