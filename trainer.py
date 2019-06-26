@@ -377,7 +377,7 @@ class Trainer:
                 # disp = F.interpolate(disp, [height, width], mode="bilinear", align_corners=False)
                 source_scale = 0
 
-            _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
+            scaledDisp, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
 
             outputs[("depth", 0, scale)] = depth
 
@@ -400,6 +400,28 @@ class Trainer:
                     inputs[("color", frame_id, source_scale)],
                     outputs[("sample", frame_id, scale)],
                     padding_mode="border")
+
+                # Check:
+                # depth = T[0,0,3] * inputs[("K", source_scale)][0,0,0] / scaledDisp
+                # ones = nn.Parameter(torch.ones(10, 1, 256 * 512)).cuda()
+                # inv_K = inputs[("inv_K", source_scale)]
+                # org_pix_coords = self.backproject_depth[(tag, source_scale)].pix_coords
+                # cam_points = torch.matmul(inv_K[:, :3, :3], org_pix_coords)
+                # cam_points = depth.view(10, 1, -1) * cam_points
+                # cam_points = torch.cat([cam_points, ones], 1)
+                #
+                # org_pix_coords = org_pix_coords[:,0:2,:]
+                #
+                # K = inputs[("K", source_scale)]
+                # T = T
+                # P = torch.matmul(K, T)[:, :3, :]
+                # cam_points = torch.matmul(P, cam_points)
+                # eps = 1e-7
+                # pix_coords = cam_points[:, :2, :] / (cam_points[:, 2, :].unsqueeze(1) + eps)
+                # bias = (pix_coords - org_pix_coords)[:,0,:]
+                # ratio = bias / scaledDisp[:,0,:,:].view(10,-1)
+                # var = torch.mean(torch.abs(bias - scaledDisp[:,0,:,:].view(10,-1)))
+
                 # visualize_outpu(inputs, outputs, '/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/recon_rg_img/kitti', np.random.randint(0, 100000, 1)[0])
                 # if not self.opt.disable_automasking:
                 #     outputs[("color_identity", frame_id, scale)] = \

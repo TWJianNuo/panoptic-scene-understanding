@@ -107,7 +107,8 @@ class CITYSCAPEDataset(SingleDataset):
         kitti_baseline = 0.54
         kitti_unit_focal = 0.58
         cts_unit_focal = cts_focal[0] / self.full_res_shape[0]
-        rescale_fac = (cts_baseline * cts_unit_focal * self.width) / (kitti_baseline * kitti_unit_focal * self.org_width)
+        # rescale_fac = (cts_baseline * cts_unit_focal * self.width) / (kitti_baseline * kitti_unit_focal * self.org_width)
+        rescale_fac = cts_baseline / kitti_baseline
         return rescale_fac
 
     def get_seman(self, folder, do_flip):
