@@ -326,7 +326,7 @@ class Merge_MultDisp(nn.Module):
                                                  outputFormat[1]).permute(0, 3, 1, 2)
                 for scale in self.scales:
                     disp_weights = F.interpolate(disp_weights, [int(height / (2 ** scale)), int(width / (2 ** scale))],
-                                                 mode="nearest", align_corners=False)
+                                                 mode="nearest")
                     outputs[('disp_weights', scale)] = disp_weights
             elif ('seman', 0) in outputs:
                 # indexRef = torch.argmax(self.sfx(outputs[('seman', 0)]), dim=1, keepdim=True)
