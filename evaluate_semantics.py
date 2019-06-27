@@ -95,7 +95,7 @@ def evaluate(opt):
 
     encoder = networks.ResnetEncoder(opt.num_layers, False)
     if opt.switchMode == 'on':
-        depth_decoder = networks.DepthDecoder(encoder.num_ch_enc, isSwitch=True, num_output_channels=19)
+        depth_decoder = networks.DepthDecoder(encoder.num_ch_enc, isSwitch=True, isMulChannel=opt.isMulChannel)
     else:
         depth_decoder = networks.DepthDecoder(encoder.num_ch_enc)
 

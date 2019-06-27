@@ -309,10 +309,10 @@ class Merge_MultDisp(nn.Module):
             outputs[se_gt_name] = seg
 
         if self.isMulChannel:
-
             for scale in self.scales:
                 disp_pred_name = ('mul_disp', scale)
-                disp = F.interpolate(outputs[disp_pred_name], [height, width], mode="bilinear", align_corners=False)
+                # disp = F.interpolate(outputs[disp_pred_name], [height, width], mode="bilinear", align_corners=False)
+                disp = outputs[disp_pred_name]
                 disp = torch.cat([disp, torch.mean(disp, dim=1, keepdim=True)], dim=1)
                 outputs[disp_pred_name] = disp
 
@@ -324,29 +324,34 @@ class Merge_MultDisp(nn.Module):
                 disp_weights[torch.arange(disp_weights.shape[0]), indexRef[:, 0]] = 1
                 disp_weights = disp_weights.view(outputFormat[0], outputFormat[2], outputFormat[3],
                                                  outputFormat[1]).permute(0, 3, 1, 2)
+                for scale in self.scales:
+                    disp_weights = F.interpolate(disp_weights, [int(height / (2 ** scale)), int(width / (2 ** scale))],
+                                                 mode="nearest", align_corners=False)
+                    outputs[('disp_weights', scale)] = disp_weights
             elif ('seman', 0) in outputs:
                 # indexRef = torch.argmax(self.sfx(outputs[('seman', 0)]), dim=1, keepdim=True)
                 disp_weights = torch.cat([self.sfx(outputs[('seman', 0)]),torch.zeros(outputFormat[0], outputFormat[2], outputFormat[3]).unsqueeze(1).cuda()], dim=1)
+                for scale in self.scales:
+                    disp_weights = F.interpolate(disp_weights, [int(height / (2 ** scale)), int(width / (2 ** scale))],
+                                                 mode="bilinear", align_corners=False)
+                    outputs[('disp_weights', scale)] = disp_weights
 
-            outputs['disp_weights'] = disp_weights
-            # if 'seman_gt' in inputs:
-            #     disp_weights = outputs['disp_weights']
-            # elif ('seman', 0) in outputs:
-            #     disp_weights = torch.cat([self.sfx(outputs[('seman', 0)]),torch.zeros(outputFormat[0], outputFormat[2], outputFormat[3]).unsqueeze(1).cuda()], dim=1)
+
+            # outputs['disp_weights'] = disp_weights
             for scale in self.scales:
                 ref_name = ('mul_disp', scale)
-                # outputs[('disp', scale)] = F.interpolate(torch.sum(outputs[ref_name] * disp_weights, dim=1, keepdim=True), [int(height/(2**scale)), int(width/(2**scale))], mode='bilinear', align_corners=False)
-                # outputs[('disp', scale)] = torch.sum(outputs[ref_name] * disp_weights, dim=1, keepdim=True)
-                outputs[('disp', scale)] = torch.sum(outputs[ref_name] * disp_weights, dim=1, keepdim=True)
+                outputs[('disp', scale)] = torch.sum(outputs[ref_name] * outputs[('disp_weights', scale)], dim=1, keepdim=True)
         else:
             for scale in self.scales:
-                disp_pred_name = ('mul_disp', scale)
-                disp = F.interpolate(outputs[disp_pred_name], [height, width], mode="bilinear", align_corners=False)
-                outputs[disp_pred_name] = disp
-
-            for scale in self.scales:
+                # disp_pred_name = ('mul_disp', scale)
+                # disp = F.interpolate(outputs[disp_pred_name], [height, width], mode="bilinear", align_corners=False)
+                # outputs[disp_pred_name] = disp
                 ref_name = ('mul_disp', scale)
                 outputs[('disp', scale)] = outputs[ref_name]
+
+            # for scale in self.scales:
+            #     ref_name = ('mul_disp', scale)
+            #     outputs[('disp', scale)] = outputs[ref_name]
 
 class Compute_SemanticLoss(nn.Module):
     def __init__(self, classtype = 19, min_scale = 3):

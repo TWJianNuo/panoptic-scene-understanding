@@ -81,6 +81,7 @@ class Trainer:
         #     self.parameters_to_train += list(self.models["predictive_mask"].parameters())
 
         self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate)
+        # self.model_optimizer = optim.SGD(self.parameters_to_train, self.opt.learning_rate)
         self.model_lr_scheduler = optim.lr_scheduler.StepLR(
             self.model_optimizer, self.opt.scheduler_step_size, 0.1)
 
@@ -165,7 +166,7 @@ class Trainer:
 
             train_dataset = initFunc(
                 datapath_set[i], train_filenames, self.opt.height, self.opt.width,
-                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=True, img_ext=img_ext)
+                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=self.opt.toyTrial, img_ext=img_ext)
             train_sample_num[i] = train_dataset.__len__()
             stacked_train_datasets.append(train_dataset)
 
@@ -278,9 +279,9 @@ class Trainer:
         features = self.models["encoder"](inputs["color_aug", 0, 0])
         # just for check
         """
-        i = 1
-        img = pil.fromarray((inputs[("color_aug", 0, 0)].permute(0,2,3,1)[i,:,:,:].cpu().numpy() * 255).astype(np.uint8))
-        img.show()
+        for i in range(10):
+            img = pil.fromarray((inputs[("color_aug", 0, 0)].permute(0,2,3,1)[i,:,:,:].cpu().numpy() * 255).astype(np.uint8))
+            img.show()
         label = inputs['seman_gt'].permute(0,2,3,1)[i,:,:,0].cpu().numpy()
         visualize_semantic(label).show()
         """
@@ -365,8 +366,8 @@ class Trainer:
         Generated images are saved into the `outputs` dictionary.
         """
         tag = inputs['tag'][0]
-        # height = inputs["height"][0]
-        # width = inputs["width"][0]
+        height = inputs["height"][0]
+        width = inputs["width"][0]
         for scale in self.opt.scales:
             disp = outputs[("disp", scale)]
             if self.opt.v1_multiscale:
@@ -374,7 +375,7 @@ class Trainer:
             else:
                 # disp = F.interpolate(
                 #     disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
-                # disp = F.interpolate(disp, [height, width], mode="bilinear", align_corners=False)
+                disp = F.interpolate(disp, [height, width], mode="bilinear", align_corners=False)
                 source_scale = 0
 
             scaledDisp, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
@@ -493,16 +494,6 @@ class Trainer:
                         # save both images, and do min all at once below
                         identity_reprojection_loss = identity_reprojection_losses
 
-                # elif self.opt.predictive_mask:
-                #     mask = outputs["predictive_mask"]["disp", scale]
-                #     if not self.opt.v1_multiscale:
-                #         mask = F.interpolate(
-                #             mask, [inputs["height"], inputs["width"]],
-                #             mode="bilinear", align_corners=False)
-                #     reprojection_losses *= mask
-                #     weighting_loss = 0.2 * nn.BCELoss()(mask, torch.ones(mask.shape).cuda())
-                #     loss += weighting_loss.mean()
-
                 if self.opt.avg_reprojection:
                     reprojection_loss = reprojection_losses.mean(1, keepdim=True)
                 else:
@@ -530,8 +521,8 @@ class Trainer:
                 loss += to_optimise.mean()
 
                 mult_disp = outputs[('mul_disp', scale)]
-                mult_disp = F.interpolate(
-                    mult_disp, [color.shape[2], color.shape[3]], mode="bilinear", align_corners=False)
+                # mult_disp = F.interpolate(
+                #     mult_disp, [color.shape[2], color.shape[3]], mode="bilinear", align_corners=False)
                 mean_disp = mult_disp.mean(2, True).mean(3, True)
                 norm_disp = mult_disp / (mean_disp + 1e-7)
                 # mean_disp = disp.mean(2, True).mean(3, True)

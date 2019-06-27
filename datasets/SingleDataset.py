@@ -147,6 +147,8 @@ class SingleDataset(data.Dataset):
 
         do_color_aug = self.is_train and random.random() > 0.5
         do_flip = self.is_train and random.random() > 0.5
+        # do_color_aug =  False
+        # do_flip = False
 
         line = self.filenames[index].split()
         folder = line[0]

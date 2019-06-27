@@ -115,7 +115,7 @@ class CITYSCAPEDataset(SingleDataset):
         return rescale_fac
 
     def get_seman(self, folder, do_flip):
-        if folder.split('/')[0] == 'train':
+        if folder.split('/')[0] == 'train' or folder.split('/')[0] == 'val':
             seman_path, ins_path = self.get_ins_seman_path(folder)
             color = self.loader(seman_path)
             if do_flip:

@@ -153,6 +153,9 @@ class MonodepthOptions:
         self.parser.add_argument("--banDepth",
                                  help="if set, Forbit predict depth",
                                  action="store_true")
+        self.parser.add_argument("--toyTrial",
+                                 help="if set, experiment on toy problem",
+                                 action="store_true")
 
         # SYSTEM options
         self.parser.add_argument("--no_cuda",
