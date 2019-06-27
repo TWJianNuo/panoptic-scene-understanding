@@ -205,10 +205,11 @@ class SingleDataset(data.Dataset):
 
         if self.load_seman:
             seman_gt = self.get_seman(folder, do_flip)
-            inputs["seman_gt_eval"] = seman_gt
-            seman_gt = np.array(self.seman_resize(Image.fromarray(seman_gt)))
-            inputs["seman_gt"] = np.expand_dims(seman_gt, 0)
-            inputs["seman_gt"] = torch.from_numpy(inputs["seman_gt"].astype(np.int))
+            if seman_gt is not None:
+                inputs["seman_gt_eval"] = seman_gt
+                seman_gt = np.array(self.seman_resize(Image.fromarray(seman_gt)))
+                inputs["seman_gt"] = np.expand_dims(seman_gt, 0)
+                inputs["seman_gt"] = torch.from_numpy(inputs["seman_gt"].astype(np.int))
             # raise NotImplementedError
 
         # baseline = self.get_baseLine(folder)

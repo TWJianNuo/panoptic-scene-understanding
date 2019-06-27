@@ -44,7 +44,6 @@ def wrap_visual_disp(tensor, ind):
     cm = plt.get_cmap('magma')
     slice = (cm(slice) * 255).astype(np.uint8)
     pil.fromarray(slice).show()
-    a = 1
 def evaluate(opt):
     """Evaluates a pretrained model using a specified test set
     """
@@ -108,10 +107,6 @@ def evaluate(opt):
             wrap_visual_disp(outputs[('disp', 0)], ind=index)
             a = inputs['seman_gt_eval']
             scaled_disp, _ = disp_to_depth(outputs[('disp', 0)], 0.1, 100)
-
-            a = 1
-
-
 
 
 if __name__ == "__main__":

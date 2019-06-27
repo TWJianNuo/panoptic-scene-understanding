@@ -15,15 +15,19 @@ from layers import *
 
 
 class DepthDecoder(nn.Module):
-    def __init__(self, num_ch_enc, scales=range(4), num_output_channels=1, use_skips=True, isSwitch = False):
+    def __init__(self, num_ch_enc, scales=range(4), isMulChannel = False, use_skips=True, isSwitch = False):
         super(DepthDecoder, self).__init__()
 
-        self.num_output_channels = num_output_channels
+        semanticType = 19
+        if isMulChannel:
+            self.num_output_channels = semanticType
+        else:
+            self.num_output_channels = 1
         self.use_skips = use_skips
         self.upsample_mode = 'nearest'
         self.scales = scales
         # self.commonScale = semanticScale
-        self.semanticType = 19 # by cityscape default
+        self.semanticType = 19
         self.isSwitch = isSwitch
 
         self.num_ch_enc = num_ch_enc

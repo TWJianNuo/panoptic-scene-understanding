@@ -69,18 +69,16 @@ class Trainer:
         self.parameters_to_train += list(self.models["encoder"].parameters())
 
         self.models["depth"] = networks.DepthDecoder(
-            self.models["encoder"].num_ch_enc, self.opt.scales, isSwitch=self.switchMode, num_output_channels = 19)
+            self.models["encoder"].num_ch_enc, self.opt.scales, isSwitch=self.switchMode, isMulChannel=self.opt.isMulChannel)
         self.models["depth"].to(self.device)
         self.parameters_to_train += list(self.models["depth"].parameters())
 
-        if self.opt.predictive_mask:
-            # Our implementation of the predictive masking baseline has the the same architecture
-            # as our depth decoder. We predict a separate mask for each source frame.
-            self.models["predictive_mask"] = networks.DepthDecoder(
-                self.models["encoder"].num_ch_enc, self.opt.scales,
-                num_output_channels=(len(self.opt.frame_ids) - 1))
-            self.models["predictive_mask"].to(self.device)
-            self.parameters_to_train += list(self.models["predictive_mask"].parameters())
+        # if self.opt.predictive_mask:
+        #     self.models["predictive_mask"] = networks.DepthDecoder(
+        #         self.models["encoder"].num_ch_enc, self.opt.scales,
+        #         num_output_channels=(len(self.opt.frame_ids) - 1))
+        #     self.models["predictive_mask"].to(self.device)
+        #     self.parameters_to_train += list(self.models["predictive_mask"].parameters())
 
         self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate)
         self.model_lr_scheduler = optim.lr_scheduler.StepLR(
@@ -122,7 +120,7 @@ class Trainer:
         """properly handle layer initialization under multiple dataset situation
         """
         self.semanticLoss = Compute_SemanticLoss(min_scale = self.opt.semantic_minscale[0])
-        self.merge_multDisp = Merge_MultDisp(self.opt.scales, batchSize = self.opt.batch_size)
+        self.merge_multDisp = Merge_MultDisp(self.opt.scales, batchSize = self.opt.batch_size, isMulChannel = self.opt.isMulChannel)
         self.backproject_depth = {}
         self.project_3d = {}
         tags = list()
@@ -292,8 +290,10 @@ class Trainer:
         # Switch between semantic and depth estimation
         # start_decoder.record()
         outputs = dict()
-        outputs.update(self.models["depth"](features, computeSemantic = True, computeDepth = False))
-        outputs.update(self.models["depth"](features, computeSemantic = False, computeDepth = True))
+        if not self.opt.banSemantic:
+            outputs.update(self.models["depth"](features, computeSemantic = True, computeDepth = False))
+        if not self.opt.banDepth:
+            outputs.update(self.models["depth"](features, computeSemantic = False, computeDepth = True))
         # end_decoder.record()
         # torch.cuda.synchronize()
         # self.timeSpan_decoder = self.timeSpan_decoder + start_decoder.elapsed_time(end_decoder)
@@ -460,18 +460,17 @@ class Trainer:
 
         # if ('disp', 0) in outputs:
         if self.is_regress_dispLoss(inputs):
+            source_scale = 0
+            target = inputs[("color", 0, source_scale)]
+            height = target.shape[2]
+            width = target.shape[3]
             for scale in self.opt.scales:
                 loss = 0
                 reprojection_losses = []
 
-                if self.opt.v1_multiscale:
-                    source_scale = scale
-                else:
-                    source_scale = 0
-
                 # disp = outputs[("disp", scale)]
                 color = inputs[("color", 0, scale)]
-                target = inputs[("color", 0, source_scale)]
+
 
                 for frame_id in self.opt.frame_ids[1:]:
                     pred = outputs[("color", frame_id, scale)]
@@ -530,28 +529,15 @@ class Trainer:
                     to_optimise = to_optimise
                 loss += to_optimise.mean()
 
-
-                # start_dispSmooth = torch.cuda.Event(enable_timing=True)
-                # end_dispSmooth = torch.cuda.Event(enable_timing=True)
-
-                # start_dispSmooth.record()
                 mult_disp = outputs[('mul_disp', scale)]
-                # mult_disp = F.interpolate(mult_disp,
-                #               [int(mult_disp.shape[2] / (2 ** scale)), int(mult_disp.shape[3] / (2 ** scale))], mode='bilinear',
-                #               align_corners=False)
+                mult_disp = F.interpolate(
+                    mult_disp, [color.shape[2], color.shape[3]], mode="bilinear", align_corners=False)
                 mean_disp = mult_disp.mean(2, True).mean(3, True)
                 norm_disp = mult_disp / (mean_disp + 1e-7)
                 # mean_disp = disp.mean(2, True).mean(3, True)
                 # norm_disp = disp / (mean_disp + 1e-7)
-                # if ('mask', scale) in inputs:
-                #     smooth_loss = get_smooth_loss(norm_disp, color, outputs['disp_weights'], inputs[('mask', scale)])
-                # else:
-                #     smooth_loss = get_smooth_loss(norm_disp, color, outputs['disp_weights'])
+                # smooth_loss = get_smooth_loss(norm_disp, color)
                 smooth_loss = get_smooth_loss(norm_disp, color)
-                # end_dispSmooth.record()
-                # torch.cuda.synchronize()
-                # self.timeSpan_dispSmooth =  self.timeSpan_dispSmooth + start_dispSmooth.elapsed_time(end_dispSmooth)
-
                 loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
                 total_loss += loss
                 losses["loss_depth/{}".format(scale)] = loss

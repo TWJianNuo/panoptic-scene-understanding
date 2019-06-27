@@ -235,6 +235,82 @@ def generateCityScapeSplit(datasetLoc, splitFileLoc):
                 writeComp2.split('.')[0].split('_')[-1])] + " " + format(index, '010') + " " + writeComp3 + "\n"
             fileVal.writelines(writel)
     fileVal.close()
+
+def cityscapeCoarseOnly(datasetLoc, splitFileLoc):
+    fineList = list()
+    for subFolder in glob.glob(os.path.join(datasetLoc, "leftImg8bit", "train_extra", "*")):
+        for imagePath in glob.glob(os.path.join(subFolder, "*.png")):
+            fineList.append(imagePath)
+    blendedList = fineList
+    random.shuffle(blendedList)
+    fileTrain = open(os.path.join(splitFileLoc, "train_files.txt"), "w+")
+    for index, imagePath in enumerate(blendedList):
+            split_comp = imagePath.split("/")
+            writeComp1 = os.path.join(split_comp[-3], split_comp[-2])
+            writeComp2 = split_comp[-1]
+            writeComp3 = 'l'
+            writel = writeComp1 + '/' + writeComp2.split('.')[0][0:len(writeComp2.split('.')[0]) - len(
+                writeComp2.split('.')[0].split('_')[-1])] + " " + format(index, '010') + " " + writeComp3 + "\n"
+            fileTrain.writelines(writel)
+    fileTrain.close()
+
+    val_fineList = list()
+    for subFolder in glob.glob(os.path.join(datasetLoc, "leftImg8bit", "val", "*")):
+        for imagePath in glob.glob(os.path.join(subFolder, "*.png")):
+            val_fineList.append(imagePath)
+
+    blendedList = val_fineList
+    random.shuffle(blendedList)
+
+    fileVal = open(os.path.join(splitFileLoc, "val_files.txt"), "w+")
+    for index, imagePath in enumerate(blendedList):
+            split_comp = imagePath.split("/")
+            writeComp1 = os.path.join(split_comp[-3], split_comp[-2])
+            writeComp2 = split_comp[-1]
+            writeComp3 = 'l'
+            writel = writeComp1 + '/' + writeComp2.split('.')[0][0:len(writeComp2.split('.')[0]) - len(
+                writeComp2.split('.')[0].split('_')[-1])] + " " + format(index, '010') + " " + writeComp3 + "\n"
+            fileVal.writelines(writel)
+    fileVal.close()
+
+
+def cityscapeFine2CoarseOnly(datasetLoc, splitFileLoc):
+    boostTime = int(np.ceil(20000/4000))
+    fineList = list()
+    for subFolder in glob.glob(os.path.join(datasetLoc, "leftImg8bit", "train", "*")):
+        for imagePath in glob.glob(os.path.join(subFolder, "*.png")):
+            fineList.append(imagePath)
+    blendedList = fineList * boostTime
+    random.shuffle(blendedList)
+    fileTrain = open(os.path.join(splitFileLoc, "train_files.txt"), "w+")
+    for index, imagePath in enumerate(blendedList):
+            split_comp = imagePath.split("/")
+            writeComp1 = os.path.join(split_comp[-3], split_comp[-2])
+            writeComp2 = split_comp[-1]
+            writeComp3 = 'l'
+            writel = writeComp1 + '/' + writeComp2.split('.')[0][0:len(writeComp2.split('.')[0]) - len(
+                writeComp2.split('.')[0].split('_')[-1])] + " " + format(index, '010') + " " + writeComp3 + "\n"
+            fileTrain.writelines(writel)
+    fileTrain.close()
+
+    val_fineList = list()
+    for subFolder in glob.glob(os.path.join(datasetLoc, "leftImg8bit", "val", "*")):
+        for imagePath in glob.glob(os.path.join(subFolder, "*.png")):
+            val_fineList.append(imagePath)
+
+    blendedList = val_fineList
+    random.shuffle(blendedList)
+
+    fileVal = open(os.path.join(splitFileLoc, "val_files.txt"), "w+")
+    for index, imagePath in enumerate(blendedList):
+            split_comp = imagePath.split("/")
+            writeComp1 = os.path.join(split_comp[-3], split_comp[-2])
+            writeComp2 = split_comp[-1]
+            writeComp3 = 'l'
+            writel = writeComp1 + '/' + writeComp2.split('.')[0][0:len(writeComp2.split('.')[0]) - len(
+                writeComp2.split('.')[0].split('_')[-1])] + " " + format(index, '010') + " " + writeComp3 + "\n"
+            fileVal.writelines(writel)
+    fileVal.close()
 if __name__ == "__main__":
     # datasetLoc = "/media/shengjie/other/cityscapesData"
     # splitFileLoc = "/media/shengjie/other/sceneUnderstanding/monodepth2/splits/cityscape"
@@ -252,6 +328,11 @@ if __name__ == "__main__":
     # splitFileLoc = "/media/shengjie/other/sceneUnderstanding/monodepth2/splits/cityscape_original"
     # generateCityScapeSplit_riginalSize(datasetLoc, splitFileLoc)
 
+    # datasetLoc = "/media/shengjie/other/cityscapesData"
+    # splitFileLoc = "/media/shengjie/other/sceneUnderstanding/monodepth2/splits/cityscapeCoarseOnly"
+    # cityscapeCoarseOnly(datasetLoc, splitFileLoc)
+
+
     datasetLoc = "/media/shengjie/other/cityscapesData"
-    splitFileLoc = "/media/shengjie/other/sceneUnderstanding/monodepth2/splits/cityscape_secondStage"
-    generateCityScapeSplit(datasetLoc, splitFileLoc)
+    splitFileLoc = "/media/shengjie/other/sceneUnderstanding/monodepth2/splits/cityscapeFine2CoarseOnly"
+    cityscapeFine2CoarseOnly(datasetLoc, splitFileLoc)

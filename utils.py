@@ -18,6 +18,7 @@ from torch.utils.data.sampler import Sampler
 from random import shuffle
 import PIL.Image as pil
 from cityscapesscripts.helpers.labels import *
+import math
 # from numba import jit
 
 
@@ -294,36 +295,17 @@ def visualize_rgbTensor(pred, view_ind = 0):
     pred = (pred[view_ind, :, :, :].detach().cpu().numpy() * 255).astype(np.uint8)
     pil.fromarray(pred).show()
 
+def con_sin(angle):
+    return math.cos(angle), math.sin(angle)
 
 
-
-# @jit(nopython=True, parallel=True)
-# def labelMapping(inputimg):
-#     transferredImg = np.zeros(inputimg.shape, dtype=np.uint8)
-#     mappingdict = np.zeros(256, dtype=np.uint8)
-#     mappingdict[0] = 7
-#     mappingdict[1] = 8
-#     mappingdict[2] = 11
-#     mappingdict[3] = 12
-#     mappingdict[4] = 13
-#     mappingdict[5] = 17
-#     mappingdict[6] = 19
-#     mappingdict[7] = 20
-#     mappingdict[8] = 21
-#     mappingdict[9] = 22
-#     mappingdict[10] = 23
-#     mappingdict[11] = 24
-#     mappingdict[12] = 25
-#     mappingdict[13] = 26
-#     mappingdict[14] = 27
-#     mappingdict[15] = 28
-#     mappingdict[16] = 31
-#     mappingdict[17] = 32
-#     mappingdict[18] = 33
-#
-#     for p in range(inputimg.shape[0]):
-#         for m in range(inputimg.shape[1]):
-#             for n in range(inputimg.shape[2]):
-#                 transferredImg[p,m,n] = mappingdict[inputimg[p,m,n]]
-#
-#     return transferredImg
+def angle2matrix(pitch, roll, yaw):
+    cy, sy = con_sin(yaw)
+    cr, sr = con_sin(roll)
+    cp, sp = con_sin(pitch)
+    ex = [
+        [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+        [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+        [-sp, cp * sr, cp * cr]
+    ]
+    return np.array(ex)

@@ -144,26 +144,15 @@ class MonodepthOptions:
                                  type=float,
                                  help="Change semantic loss ratio",
                                  default=1.0,)
-        # self.parser.add_argument("--is_server",
-        #                          help="if set, indicate train on server",
-        #                          action="store_true")
-        # self.parser.add_argument("--self_occlusionLoss",
-        #                          help="if set, do self occlusion",
-        #                          action="store_true")
-        # self.parser.add_argument("--semanticScales",
-        #                          type=int,
-        #                          help="scales used in semantic decoder branch",
-        #                          default=4)
-        # self.parser.add_argument("--pose_model_input",
-        #                          type=str,
-        #                          help="how many images the pose network gets",
-        #                          default="pairs",
-        #                          choices=["pairs", "all"])
-        # self.parser.add_argument("--pose_model_type",
-        #                          type=str,
-        #                          help="normal or shared",
-        #                          default="separate_resnet",
-        #                          choices=["posecnn", "separate_resnet", "shared"])
+        self.parser.add_argument("--isMulChannel",
+                                 help="if set, Use multiple depth channel",
+                                 action="store_true")
+        self.parser.add_argument("--banSemantic",
+                                 help="if set, Forbit predict semantic segmentation",
+                                 action="store_true")
+        self.parser.add_argument("--banDepth",
+                                 help="if set, Forbit predict depth",
+                                 action="store_true")
 
         # SYSTEM options
         self.parser.add_argument("--no_cuda",

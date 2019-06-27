@@ -17,13 +17,17 @@ from .SingleDataset import SingleDataset
 from torchvision import transforms
 import json
 import copy
+from utils import angle2matrix
+from utils import set_axes_equal
+from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.pyplot as plt
 
 
 class CITYSCAPEDataset(SingleDataset):
     """Superclass for different types of KITTI dataset loaders
     """
-    def __init__(self, *args, **kwargs):
-        super(CITYSCAPEDataset, self).__init__(*args, **kwargs)
+    def __init__(self, data_path, filenames, height, width, frame_idxs, num_scales, tag, is_train=False, img_ext='.png', load_depth = False):
+        super(CITYSCAPEDataset, self).__init__(data_path, filenames, height, width, frame_idxs, num_scales, tag, is_train=False, img_ext='.png')
         # self.kitti_K = np.array([[0.58, 0, 0.5, 0],
         #                         [0, 1.92, 0.5, 0],
         #                         [0, 0, 1, 0],
@@ -35,7 +39,9 @@ class CITYSCAPEDataset(SingleDataset):
         self.change_resize()
         self.mask = None
         self.load_mask()
-        # self.ctsImg_sz_rec = dict()
+        if load_depth:
+            # Need to overwrite prev flag
+            self.load_depth = True
 
     def load_mask(self):
         imgPath = 'assets/cityscapemask.png'
@@ -81,9 +87,6 @@ class CITYSCAPEDataset(SingleDataset):
         self.seman_resize = transforms.Resize((self.height, self.width),
                                                interpolation=pil.NEAREST)
 
-    # def get_img_size(self, folder):
-    #     return self.ctsImg_sz_rec[self.t_folder(folder)]
-
     def get_K(self, folder):
         # Return K as well as record all necessary things
         cts_focal, baseline = self.get_cityscape_cam_param(folder)
@@ -112,17 +115,52 @@ class CITYSCAPEDataset(SingleDataset):
         return rescale_fac
 
     def get_seman(self, folder, do_flip):
-        seman_path, ins_path = self.get_ins_seman_path(folder)
-        color = self.loader(seman_path)
-        if do_flip:
-            color = color.transpose(pil.FLIP_LEFT_RIGHT)
-        seman_label = np.array(color)[:,:,0]
-        # ins_label = np.array(self.loader(ins_path))
-        # pil.fromarray(((seman_label == 1)*255).astype(np.uint8)).show()
-        return seman_label
+        if folder.split('/')[0] == 'train':
+            seman_path, ins_path = self.get_ins_seman_path(folder)
+            color = self.loader(seman_path)
+            if do_flip:
+                color = color.transpose(pil.FLIP_LEFT_RIGHT)
+            seman_label = np.array(color)[:,:,0]
+            # ins_label = np.array(self.loader(ins_path))
+            # pil.fromarray(((seman_label == 1)*255).astype(np.uint8)).show()
+            return seman_label
+        else:
+            return None
 
     def check_seman(self):
         return True
+
+    def get_In_Ex(self, intr, extr):
+        intrinsic = np.eye(3)
+        intrinsic[0,0] = intr['fx']
+        intrinsic[1, 1] = intr['fy']
+        intrinsic[0, 2] = intr['u0']
+        intrinsic[1, 2] = intr['v0']
+        intrinsic[2, 2] = 1
+        post = np.array([
+            [0, -1, 0],
+            [0, 0, -1],
+            [1, 0, 0]
+        ])
+        intrinsic = intrinsic @ post
+        intrinsic_ex = np.eye(4)
+        intrinsic_ex[0:3,0:3] = intrinsic
+
+        extrinsic = np.eye(4)
+        rotM = angle2matrix(pitch = extr['pitch'], roll = extr['roll'], yaw = extr['yaw'])
+        trans = np.array([extr['x'], extr['y'], extr['z']])
+        # to check
+        # chekc = np.eye(4)
+        # chekc[0:3,0:3] = rotM
+        # chekc[0:3,3] = trans
+
+        rotM = rotM.T
+        trans = - rotM @ trans
+        extrinsic[0:3,0:3] = rotM
+        extrinsic[0:3,3] = trans
+
+
+        return intrinsic_ex, extrinsic
 
 class CITYSCAPERawDataset(CITYSCAPEDataset):
     """KITTI dataset which loads the original velodyne depth maps for ground truth
@@ -135,7 +173,41 @@ class CITYSCAPERawDataset(CITYSCAPEDataset):
         return image_path
 
     def get_depth(self, folder, frame_index, side, do_flip):
-        return None
+        print("load depth")
+        image_path = os.path.join(self.data_path, 'disparity', folder + 'disparity' + self.img_ext)
+        cts_focal, baseline = self.get_cityscape_cam_param(folder)
+        # color = np.array(self.loader(image_path))
+        disp = np.array(pil.open(image_path)).astype(np.float)
+        mask = np.logical_and(disp!=0, disp>1)
+        disp[mask] = (disp[mask] - 1) / 256
+        depth = np.zeros(disp.shape)
+        depth[mask] = np.clip(cts_focal[0] * baseline / disp[mask], a_min = 0, a_max = 80)
+        # depth2d = copy.deepcopy(depth)
+
+        # recover 3d points
+        intr, extr = self.get_intrin_extrin_param(folder)
+        intrinsic, extrinsic = self.get_In_Ex(intr, extr)
+        mask = mask.flatten()
+        xx, yy = np.meshgrid(np.arange(disp.shape[1]), np.arange(disp.shape[0]))
+        xx = xx.flatten()
+        yy = yy.flatten()
+        depth = depth.flatten()
+        oneColumn = np.ones(disp.shape[0] * disp.shape[1])
+        pixelLoc = np.stack([xx[mask] * depth[mask], yy[mask] * depth[mask], depth[mask], oneColumn[mask]], axis=1)
+        cam_coord = (np.linalg.inv(intrinsic) @ pixelLoc.T).T
+        veh_coord = (extrinsic @ cam_coord.T).T
+
+        if do_flip:
+            depth = np.fliplr(depth)
+            mask = np.fliplr(mask)
+            ###----Attention------###
+            # Intrinsic and Extrinsic still be wrong after flip
+        # fig = plt.figure()
+        # ax = fig.add_subplot(111, projection='3d')
+        # ax.scatter(veh_coord[0::100,0], veh_coord[0::100,1], veh_coord[0::100,2], s=0.1)
+        # set_axes_equal(ax)
+        # pil.fromarray(((depth / depth.max()) * 255).astype(np.uint8)).show()
+        return depth, mask, intrinsic, extrinsic, veh_coord
 
     def get_cityscape_cam_param(self, folder):
         # camName = os.path.join("camera_trainvaltest", "camera")
@@ -146,6 +218,15 @@ class CITYSCAPERawDataset(CITYSCAPEDataset):
             cts_focal = np.array((data['intrinsic']['fx'], data['intrinsic']['fy'])) # [fx, fy]
         return cts_focal, baseline
 
+    def get_intrin_extrin_param(self, folder):
+        # camName = os.path.join("camera_trainvaltest", "camera")
+        k_path = os.path.join(self.data_path, "camera", folder + "camera.json")
+        with open(k_path) as json_file:
+            data = json.load(json_file)
+            extrinsic = data['extrinsic']
+            intrinsic = data['intrinsic']
+        return intrinsic, extrinsic
+
     def get_ins_seman_path(self, folder):
         if folder.split("/")[0] == 'train' or folder.split("/")[0] == 'val':
             ins_path = os.path.join(self.data_path, "gtFine_processed", folder + "gtFine_instanceTrainIds" + self.img_ext)
@@ -154,6 +235,3 @@ class CITYSCAPERawDataset(CITYSCAPEDataset):
             ins_path = os.path.join(self.data_path, "gtCoarse_processed", folder + "gtCoarse_instanceTrainIds" + self.img_ext)
             seman_path = os.path.join(self.data_path, "gtCoarse_processed", folder + "gtCoarse_labelTrainIds" + self.img_ext)
         return seman_path, ins_path
-
-    # def t_folder(self, folder):
-    #     return folder.split('/')[2][:-1:]

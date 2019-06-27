@@ -217,7 +217,7 @@ def upsample(x):
     return F.interpolate(x, scale_factor=2, mode="nearest")
 
 
-def get_smooth_loss(disp, img, disp_weights = None, mask = None):
+def get_smooth_loss(disp, img):
     """Computes the smoothness loss for a disparity image
     The color image is used for edge-aware smoothness
     """
@@ -230,11 +230,6 @@ def get_smooth_loss(disp, img, disp_weights = None, mask = None):
 
     grad_disp_x *= torch.exp(-grad_img_x)
     grad_disp_y *= torch.exp(-grad_img_y)
-
-    # if disp_weights is not None:
-    #     grad_disp_x = torch.sum(grad_disp_x * disp_weights[:,0:19,:,0:disp_weights.shape[3]-1], dim=1, keepdim=True)
-    #     grad_disp_y = torch.sum(grad_disp_y * disp_weights[:,0:19,0:disp_weights.shape[2]-1,:], dim=1, keepdim=True)
-        # grad_disp = grad_disp_x.mean() + grad_disp_y.mean()
 
     return grad_disp_x.mean() + grad_disp_y.mean()
 
@@ -292,90 +287,66 @@ def compute_depth_errors(gt, pred):
 
     return abs_rel, sq_rel, rmse, rmse_log, a1, a2, a3
 
-# class compute_occlu_mask(nn.Module):
-#     def __init__(self, suppress_param = 1.0, batchNum = 12, inputSizes = torch.Tensor([[(512, 256)],[192,640]])):
-#         super(compute_occlu_mask, self).__init__()
-#         self.suppress_param = suppress_param
-#         self.sigmoid = nn.Sigmoid()
-#         self.batchNum = 12
-#         self.inputSizes = inputSizes # [[cityscape], [kitti]]
-#         self.batchBias = list()
-#
-#         meshgrid = np.meshgrid(range(self.width), range(self.height), indexing='xy')
-#         self.id_coords = np.stack(meshgrid, axis=0).astype(np.float32)
-#         self.id_coords = nn.Parameter(torch.from_numpy(self.id_coords))
-#
-#         self.ones = nn.Parameter(torch.ones(self.batch_size, 1, self.height * self.width))
-#
-#         self.pix_coords = torch.unsqueeze(torch.stack(
-#             [self.id_coords[0].view(-1), self.id_coords[1].view(-1)], 0), 0)
-#         self.pix_coords = self.pix_coords.repeat(batch_size, 1, 1)
-#         self.pix_coords = nn.Parameter(torch.cat([self.pix_coords, self.ones], 1))
-#         for i in range(self.inputSizes.shape[0]):
-#             bias = list()
-#             for j in range(self.batchNum):
-#                 bias.append(torch.ones(self.inputSizes[0] * self.inputSizes[1], dtype=torch.int64))
-#             bias = torch.cat(bias, dim=0).unsqueeze(1)
-#             self.batchBias.append(bias)
-#     def forward(self, depth, self_sampled_depth):
-#         a = 1
-
 class Merge_MultDisp(nn.Module):
-    def __init__(self, scales, semanType = 19, batchSize = 6):
+    def __init__(self, scales, semanType = 19, batchSize = 6, isMulChannel = False):
         # Merge multiple channel disparity to single channel according to semantic
         super(Merge_MultDisp, self).__init__()
         self.scales = scales
         self.semanType = semanType
         self.batchSize = batchSize
         self.sfx = nn.Softmax(dim=1).cuda()
+        self.isMulChannel = isMulChannel
         # self.weights_time = 0
 
-    def forward(self, inputs, outputs, predict = False):
+    def forward(self, inputs, outputs, eval = False):
         height = inputs[('color', 0, 0)].shape[2]
         width = inputs[('color', 0, 0)].shape[3]
         outputFormat = [self.batchSize, self.semanType + 1, height, width]
 
-        tmpDispDic = dict()
         for scale in self.scales:
             se_gt_name = ('seman', scale)
             seg = F.interpolate(outputs[se_gt_name], size=[height, width], mode='bilinear', align_corners=False)
             outputs[se_gt_name] = seg
 
-            disp_pred_name = ('mul_disp', scale)
-            disp = F.interpolate(outputs[disp_pred_name], [height, width], mode="bilinear", align_corners=False)
-            disp = torch.cat([disp, torch.mean(disp, dim=1, keepdim=True)], dim=1)
-            tmpDispDic[disp_pred_name] = disp
-            # outputs[disp_pred_name] = disp
+        if self.isMulChannel:
 
-        # weighTimeStart = torch.cuda.Event(enable_timing=True)
-        # weighTimeEnd = torch.cuda.Event(enable_timing=True)
+            for scale in self.scales:
+                disp_pred_name = ('mul_disp', scale)
+                disp = F.interpolate(outputs[disp_pred_name], [height, width], mode="bilinear", align_corners=False)
+                disp = torch.cat([disp, torch.mean(disp, dim=1, keepdim=True)], dim=1)
+                outputs[disp_pred_name] = disp
 
-        if 'seman_gt' in inputs and not predict:
-            indexRef = deepcopy(inputs['seman_gt'])
-            indexRef[indexRef == 255] = self.semanType
-            disp_weights = torch.zeros(outputFormat).permute(0, 2, 3, 1).contiguous().view(-1, outputFormat[1]).cuda()
-            indexRef = indexRef.permute(0, 2, 3, 1).contiguous().view(-1, 1)
-            disp_weights[torch.arange(disp_weights.shape[0]), indexRef[:, 0]] = 1
-            disp_weights = disp_weights.view(outputFormat[0], outputFormat[2], outputFormat[3],
-                                             outputFormat[1]).permute(0, 3, 1, 2)
-        elif ('seman', 0) in outputs:
-            # indexRef = torch.argmax(self.sfx(outputs[('seman', 0)]), dim=1, keepdim=True)
-            disp_weights = torch.cat([self.sfx(outputs[('seman', 0)]),torch.zeros(outputFormat[0], outputFormat[2], outputFormat[3]).unsqueeze(1).cuda()], dim=1)
+            if 'seman_gt' in inputs and not eval:
+                indexRef = deepcopy(inputs['seman_gt'])
+                indexRef[indexRef == 255] = self.semanType
+                disp_weights = torch.zeros(outputFormat).permute(0, 2, 3, 1).contiguous().view(-1, outputFormat[1]).cuda()
+                indexRef = indexRef.permute(0, 2, 3, 1).contiguous().view(-1, 1)
+                disp_weights[torch.arange(disp_weights.shape[0]), indexRef[:, 0]] = 1
+                disp_weights = disp_weights.view(outputFormat[0], outputFormat[2], outputFormat[3],
+                                                 outputFormat[1]).permute(0, 3, 1, 2)
+            elif ('seman', 0) in outputs:
+                # indexRef = torch.argmax(self.sfx(outputs[('seman', 0)]), dim=1, keepdim=True)
+                disp_weights = torch.cat([self.sfx(outputs[('seman', 0)]),torch.zeros(outputFormat[0], outputFormat[2], outputFormat[3]).unsqueeze(1).cuda()], dim=1)
 
-        outputs['disp_weights'] = disp_weights
-        # weighTimeStart.record()
-        # if 'seman_gt' in inputs:
-        #     disp_weights = outputs['disp_weights']
-        # elif ('seman', 0) in outputs:
-        #     disp_weights = torch.cat([self.sfx(outputs[('seman', 0)]),torch.zeros(outputFormat[0], outputFormat[2], outputFormat[3]).unsqueeze(1).cuda()], dim=1)
-        for scale in self.scales:
-            ref_name = ('mul_disp', scale)
-            # outputs[('disp', scale)] = F.interpolate(torch.sum(outputs[ref_name] * disp_weights, dim=1, keepdim=True), [int(height/(2**scale)), int(width/(2**scale))], mode='bilinear', align_corners=False)
-            # outputs[('disp', scale)] = torch.sum(outputs[ref_name] * disp_weights, dim=1, keepdim=True)
-            outputs[('disp', scale)] = torch.sum(tmpDispDic[ref_name] * disp_weights, dim=1, keepdim=True)
-        # weighTimeEnd.record()
-        # torch.cuda.synchronize()
-        # self.weights_time = self.weights_time + weighTimeStart.elapsed_time(weighTimeEnd)
+            outputs['disp_weights'] = disp_weights
+            # if 'seman_gt' in inputs:
+            #     disp_weights = outputs['disp_weights']
+            # elif ('seman', 0) in outputs:
+            #     disp_weights = torch.cat([self.sfx(outputs[('seman', 0)]),torch.zeros(outputFormat[0], outputFormat[2], outputFormat[3]).unsqueeze(1).cuda()], dim=1)
+            for scale in self.scales:
+                ref_name = ('mul_disp', scale)
+                # outputs[('disp', scale)] = F.interpolate(torch.sum(outputs[ref_name] * disp_weights, dim=1, keepdim=True), [int(height/(2**scale)), int(width/(2**scale))], mode='bilinear', align_corners=False)
+                # outputs[('disp', scale)] = torch.sum(outputs[ref_name] * disp_weights, dim=1, keepdim=True)
+                outputs[('disp', scale)] = torch.sum(outputs[ref_name] * disp_weights, dim=1, keepdim=True)
+        else:
+            for scale in self.scales:
+                disp_pred_name = ('mul_disp', scale)
+                disp = F.interpolate(outputs[disp_pred_name], [height, width], mode="bilinear", align_corners=False)
+                outputs[disp_pred_name] = disp
+
+            for scale in self.scales:
+                ref_name = ('mul_disp', scale)
+                outputs[('disp', scale)] = outputs[ref_name]
 
 class Compute_SemanticLoss(nn.Module):
     def __init__(self, classtype = 19, min_scale = 3):
