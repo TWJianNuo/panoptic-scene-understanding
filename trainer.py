@@ -30,7 +30,7 @@ from cityscapesscripts.evaluation.evalPixelLevelSemanticLabeling import *
 # import torch.backends.cudnn as cudnn
 # cudnn.benchmark = True
 
-
+torch.manual_seed(0)
 
 class Trainer:
     def __init__(self, options):
@@ -250,6 +250,7 @@ class Trainer:
                     self.compute_semantic_losses(inputs, outputs, losses)
                 else:
                     loss_seman = -1
+
                 if "loss_depth" in losses:
                     loss_depth = losses["loss_depth"].cpu().data
                 else:
@@ -279,9 +280,9 @@ class Trainer:
         features = self.models["encoder"](inputs["color_aug", 0, 0])
         # just for check
         """
-        for i in range(10):
-            img = pil.fromarray((inputs[("color_aug", 0, 0)].permute(0,2,3,1)[i,:,:,:].cpu().numpy() * 255).astype(np.uint8))
-            img.show()
+        i = 1
+        img = pil.fromarray((inputs[("color_aug", 0, 0)].permute(0,2,3,1)[i,:,:,:].cpu().numpy() * 255).astype(np.uint8))
+        img.show()
         label = inputs['seman_gt'].permute(0,2,3,1)[i,:,:,0].cpu().numpy()
         visualize_semantic(label).show()
         """
@@ -324,7 +325,9 @@ class Trainer:
         # end_loss.record()
         # torch.cuda.synchronize()
         # self.timeSpan_loss = self.timeSpan_loss + start_loss.elapsed_time(end_loss)
-
+        # losses['loss'].backward()
+        # grad_sample =self.models['depth'].decoder[0].conv_pos.conv.weight.grad
+        # print(torch.sum(torch.abs(grad_sample)))
         return outputs, losses
     def is_regress_dispLoss(self, inputs):
         # if there are stereo images, we compute depth
@@ -427,17 +430,6 @@ class Trainer:
                 # if not self.opt.disable_automasking:
                 #     outputs[("color_identity", frame_id, scale)] = \
                 #         inputs[("color", frame_id, source_scale)]
-                # if self.opt.self_occlusionLoss:
-                #     self_depth_diff = torch.zeros(outputs[("depth", 0, scale)].shape)
-                #     pix_coords_round = torch.round(pix_coords)
-                #     a = F.grid_sample(
-                #         outputs[("depth", 0, scale)],
-                #         outputs[("sample", frame_id, scale)],
-                #         padding_mode="zeros").view(-1)
-                #     outputs[("self_sampled_depth", scale)] = F.grid_sample(
-                #         outputs[("depth", 0, scale)],
-                #         outputs[("sample", frame_id, scale)],
-                #         padding_mode="border")
 
     def compute_reprojection_loss(self, pred, target):
         """Computes reprojection loss between a batch of predicted and target images

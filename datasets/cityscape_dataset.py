@@ -54,6 +54,8 @@ class CITYSCAPEDataset(SingleDataset):
     def check_depth(self):
         return False
 
+    # def check_
+
     def get_color(self, folder, frame_index, side, do_flip):
         imgPath = self.get_image_path(folder, frame_index, side)
         color = self.loader(imgPath)

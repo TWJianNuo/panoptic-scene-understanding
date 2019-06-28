@@ -26,7 +26,7 @@ class KITTISemanticDataset(SingleDataset):
         self.labels = labels
         self.seman_resize = transforms.Resize((self.height, self.width),
                                                interpolation=pil.NEAREST)
-
+        self.mask = None
     def check_depth(self):
         return False
 

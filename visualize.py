@@ -70,7 +70,7 @@ def evaluate(opt):
                                            encoder_dict['height'], encoder_dict['width'],
                                            [0], 4, is_train=False, tag=opt.dataset)
     elif opt.dataset == 'kitti':
-        dataset = datasets.KITTISemanticDataset(opt.data_path, filenames,
+        dataset = datasets.KITTIRAWDataset(opt.data_path, filenames,
                                            encoder_dict['height'], encoder_dict['width'],
                                            [0], 4, is_train=False, tag=opt.dataset)
     else:
@@ -120,6 +120,13 @@ def evaluate(opt):
                     rec[i,:] += torch.histc(mulDepth[:,i,:,:],bins=100,min=0,max=100).numpy()
             ## if visualize the image
             if isvisualize:
+                mult_disp = outputs[('mul_disp', 0)]
+                # for k in range(mult_disp.shape[1]):
+                #     curDisp = mult_disp[:,k,:,:].unsqueeze(1)
+                #     fig_disp = wrap_visual_disp(curDisp, ind=index)
+                #     fig_disp.show()
+
+
                 mergeDisp(inputs, outputs, eval=True)
                 fig_seman = wrap_visual_semantic(outputs[('seman', 0)], ind=index)
                 fig_rgb = wrap_visual_rgb(inputs[('color', 0, 0)], ind=index)
@@ -127,7 +134,7 @@ def evaluate(opt):
                 combined = [np.array(fig_disp)[:,:,0:3], np.array(fig_seman), np.array(fig_rgb)]
                 combined = np.concatenate(combined, axis=1)
                 fig = pil.fromarray(combined)
-                fig.save(os.path.join(svRoot, app, str(idx) + '.png'))
+                fig.save(os.path.join(svRoot, app, 'More smoothed' + str(idx) + '.png'))
 
                 # for k in range(10):
                 #     fig_disp = wrap_visual_disp(outputs[('disp', 0)], ind=k)
