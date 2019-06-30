@@ -213,6 +213,8 @@ class SingleDataset(data.Dataset):
                 inputs["seman_gt"] = np.expand_dims(seman_gt, 0)
                 inputs["seman_gt"] = torch.from_numpy(inputs["seman_gt"].astype(np.int))
             # raise NotImplementedError
+        if self.check_cityscape_meta():
+            inputs["cts_meta"] = self.get_cityscape_meta(folder)
 
         # baseline = self.get_baseLine(folder)
         rescale_fac = self.get_rescaleFac(folder)
@@ -254,4 +256,10 @@ class SingleDataset(data.Dataset):
         raise NotImplementedError
 
     def check_seman(self):
+        raise NotImplementedError
+
+    def check_cityscape_meta(self):
+        raise NotImplementedError
+
+    def get_cityscape_meta(self, folder):
         raise NotImplementedError

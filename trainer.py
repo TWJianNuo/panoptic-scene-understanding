@@ -507,7 +507,11 @@ class Trainer:
 
                 # if it's cityscape dataset, need to mask out ego vehicle
                 if ('mask', 0) in inputs:
-                    to_optimise = to_optimise.masked_select(inputs[('mask', 0)])
+                    if 'gtMask' in outputs:
+                        andMask = outputs['gtMask'][:,0,:,:] * inputs[('mask', 0)]
+                        to_optimise = to_optimise.masked_select(andMask)
+                    else:
+                        to_optimise = to_optimise.masked_select(inputs[('mask', 0)])
                 else:
                     to_optimise = to_optimise
                 loss += to_optimise.mean()

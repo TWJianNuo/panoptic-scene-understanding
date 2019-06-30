@@ -321,6 +321,7 @@ class Merge_MultDisp(nn.Module):
 
             if 'seman_gt' in inputs and not eval:
                 indexRef = deepcopy(inputs['seman_gt'])
+                outputs['gtMask'] = indexRef != 255
                 indexRef[indexRef == 255] = self.semanType
                 disp_weights = torch.zeros(outputFormat).permute(0, 2, 3, 1).contiguous().view(-1, outputFormat[1]).cuda()
                 indexRef = indexRef.permute(0, 2, 3, 1).contiguous().view(-1, 1)

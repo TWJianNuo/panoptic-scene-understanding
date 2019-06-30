@@ -68,6 +68,8 @@ class KITTIDataset(SingleDataset):
     def check_seman(self):
         return False
 
+    def check_cityscape_meta(self):
+        return False
 
 class KITTIRAWDataset(KITTIDataset):
     """KITTI dataset which loads the original velodyne depth maps for ground truth

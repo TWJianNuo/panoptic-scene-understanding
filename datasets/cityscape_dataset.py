@@ -54,7 +54,8 @@ class CITYSCAPEDataset(SingleDataset):
     def check_depth(self):
         return False
 
-    # def check_
+    def check_cityscape_meta(self):
+        return False
 
     def get_color(self, folder, frame_index, side, do_flip):
         imgPath = self.get_image_path(folder, frame_index, side)
@@ -117,7 +118,7 @@ class CITYSCAPEDataset(SingleDataset):
         return rescale_fac
 
     def get_seman(self, folder, do_flip):
-        if folder.split('/')[0] == 'train' or folder.split('/')[0] == 'val':
+        if folder.split('/')[0] == 'train' or folder.split('/')[0] == 'val' or folder.split('/')[0] == 'train_extra':
             seman_path, ins_path = self.get_ins_seman_path(folder)
             color = self.loader(seman_path)
             if do_flip:
@@ -132,7 +133,7 @@ class CITYSCAPEDataset(SingleDataset):
     def check_seman(self):
         return True
 
-    def get_In_Ex(self, intr, extr):
+    def process_InExParam2Matr(self, intr, extr):
         intrinsic = np.eye(3)
         intrinsic[0,0] = intr['fx']
         intrinsic[1, 1] = intr['fy']
@@ -164,6 +165,9 @@ class CITYSCAPEDataset(SingleDataset):
 
         return intrinsic_ex, extrinsic
 
+    def get_cityscape_meta(self, folder):
+        self.get_cityscape_meta(folder)
+
 class CITYSCAPERawDataset(CITYSCAPEDataset):
     """KITTI dataset which loads the original velodyne depth maps for ground truth
     """
@@ -175,7 +179,9 @@ class CITYSCAPERawDataset(CITYSCAPEDataset):
         return image_path
 
     def get_depth(self, folder, frame_index, side, do_flip):
-        print("load depth")
+        return None
+
+    def get_cityscape_meta(self, folder):
         image_path = os.path.join(self.data_path, 'disparity', folder + 'disparity' + self.img_ext)
         cts_focal, baseline = self.get_cityscape_cam_param(folder)
         # color = np.array(self.loader(image_path))
@@ -183,33 +189,37 @@ class CITYSCAPERawDataset(CITYSCAPEDataset):
         mask = np.logical_and(disp!=0, disp>1)
         disp[mask] = (disp[mask] - 1) / 256
         depth = np.zeros(disp.shape)
-        depth[mask] = np.clip(cts_focal[0] * baseline / disp[mask], a_min = 0, a_max = 80)
+        depth[mask] = np.clip(cts_focal[0] * baseline / disp[mask], a_min = 0.1, a_max = 100)
+        # mask = mask.astype(np.uint8)
         # depth2d = copy.deepcopy(depth)
 
         # recover 3d points
         intr, extr = self.get_intrin_extrin_param(folder)
-        intrinsic, extrinsic = self.get_In_Ex(intr, extr)
-        mask = mask.flatten()
-        xx, yy = np.meshgrid(np.arange(disp.shape[1]), np.arange(disp.shape[0]))
-        xx = xx.flatten()
-        yy = yy.flatten()
-        depth = depth.flatten()
-        oneColumn = np.ones(disp.shape[0] * disp.shape[1])
-        pixelLoc = np.stack([xx[mask] * depth[mask], yy[mask] * depth[mask], depth[mask], oneColumn[mask]], axis=1)
-        cam_coord = (np.linalg.inv(intrinsic) @ pixelLoc.T).T
-        veh_coord = (extrinsic @ cam_coord.T).T
+        intrinsic, extrinsic = self.process_InExParam2Matr(intr, extr)
+        mask_store = copy.deepcopy(mask).astype(np.uint8)
+        # mask = mask.flatten()
+        # xx, yy = np.meshgrid(np.arange(disp.shape[1]), np.arange(disp.shape[0]))
+        # xx = xx.flatten()
+        # yy = yy.flatten()
+        # depthFlat = depth.flatten()
+        # oneColumn = np.ones(disp.shape[0] * disp.shape[1])
+        # pixelLoc = np.stack([xx[mask] * depthFlat[mask], yy[mask] * depthFlat[mask], depthFlat[mask], oneColumn[mask]], axis=1)
+        # cam_coord = (np.linalg.inv(intrinsic) @ pixelLoc.T).T
+        # veh_coord = (np.linalg.inv(extrinsic) @ cam_coord.T).T
 
-        if do_flip:
-            depth = np.fliplr(depth)
-            mask = np.fliplr(mask)
-            ###----Attention------###
-            # Intrinsic and Extrinsic still be wrong after flip
+        #----------- Consider flip------------#
+        ctsMeta = dict()
+        ctsMeta['depthMap'] = depth
+        ctsMeta['mask'] = mask_store
+        ctsMeta['intrinsic'] = intrinsic
+        ctsMeta['extrinsic'] = extrinsic
+        # ctsMeta['veh_coord'] = veh_coord
         # fig = plt.figure()
         # ax = fig.add_subplot(111, projection='3d')
         # ax.scatter(veh_coord[0::100,0], veh_coord[0::100,1], veh_coord[0::100,2], s=0.1)
         # set_axes_equal(ax)
         # pil.fromarray(((depth / depth.max()) * 255).astype(np.uint8)).show()
-        return depth, mask, intrinsic, extrinsic, veh_coord
+        return ctsMeta
 
     def get_cityscape_cam_param(self, folder):
         # camName = os.path.join("camera_trainvaltest", "camera")
