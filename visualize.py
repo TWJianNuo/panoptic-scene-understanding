@@ -228,7 +228,7 @@ def evaluate(opt):
 
     ##--------------------Visualization parameter here----------------------------##
     sfx = torch.nn.Softmax(dim=1)
-    mergeDisp = Merge_MultDisp(opt.scales, batchSize = opt.batch_size, isMulChannel = True)
+    mergeDisp = Merge_MultDisp(opt.scales, batchSize = opt.batch_size, isMulChannel = opt.isMulChannel)
     svRoot = '/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/figure_visual'
     index = 0
     isvisualize = True
@@ -262,7 +262,7 @@ def evaluate(opt):
                 for i in range(mulDisp.shape[1]):
                     rec[i,:] += torch.histc(mulDepth[:,i,:,:],bins=100,min=0,max=100).numpy()
             if isvisualize:
-                mergeDisp(inputs, outputs, eval=False)
+                mergeDisp(inputs, outputs, eval=True)
 
                 dispMap = outputs[('disp', 0)]
                 scaled_disp, mulDepth = disp_to_depth(dispMap, 0.1, 100)

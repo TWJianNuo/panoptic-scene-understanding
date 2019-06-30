@@ -516,7 +516,7 @@ class Trainer:
                     to_optimise = to_optimise
                 loss += to_optimise.mean()
 
-                mult_disp = outputs[('mul_disp', scale)]
+                mult_disp = outputs[('mul_disp', scale)][:,0:-1:,:]
                 # mult_disp = F.interpolate(
                 #     mult_disp, [color.shape[2], color.shape[3]], mode="bilinear", align_corners=False)
                 mean_disp = mult_disp.mean(2, True).mean(3, True)
