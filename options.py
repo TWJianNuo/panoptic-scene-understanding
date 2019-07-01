@@ -30,11 +30,6 @@ class MonodepthOptions:
                                  type=str,
                                  help="the name of the folder to save the model in",
                                  default="mdp")
-        # self.parser.add_argument("--split",
-        #                          type=str,
-        #                          help="which training split to use",
-        #                          choices=["eigen_zhou", "eigen_full", "odom", "benchmark", "cityscape"],
-        #                          default="eigen_zhou")
         self.parser.add_argument("--split",
                                  type=str,
                                  help="which training split to use",
@@ -44,11 +39,6 @@ class MonodepthOptions:
                                  help="number of resnet layers",
                                  default=18,
                                  choices=[18, 34, 50, 101, 152])
-        # self.parser.add_argument("--dataset",
-        #                          type=str,
-        #                          help="dataset to train on",
-        #                          default="kitti",
-        #                          choices=["kitti", "kitti_odom", "kitti_depth", "kitti_test", "cityscape"])
         self.parser.add_argument("--dataset",
                                  type=str,
                                  help="dataset to train on",
@@ -170,11 +160,6 @@ class MonodepthOptions:
         self.parser.add_argument("--load_weights_folder",
                                  type=str,
                                  help="name of model to load")
-        # self.parser.add_argument("--models_to_load",
-        #                          nargs="+",
-        #                          type=str,
-        #                          help="models to load",
-        #                          default=["encoder", "depth", "pose_encoder", "pose"])
         self.parser.add_argument("--models_to_load",
                                  nargs="+",
                                  type=str,

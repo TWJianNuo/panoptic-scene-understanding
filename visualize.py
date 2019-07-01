@@ -29,24 +29,27 @@ def tensor2rgb(tensor, ind):
     # pil.fromarray(slice).show()
     return pil.fromarray(slice)
 
-def tensor2semantic(tensor, ind):
+def tensor2semantic(tensor, ind, isGt = False):
     slice = tensor[ind, :, :, :]
-    slice = F.softmax(slice, dim=0)
-    slice = torch.argmax(slice, dim=0).cpu().numpy()
+    if not isGt:
+        slice = F.softmax(slice, dim=0)
+        slice = torch.argmax(slice, dim=0).cpu().numpy()
+    else:
+        slice = slice[0,:,:].cpu().numpy()
     # visualize_semantic(slice).show()
     return visualize_semantic(slice)
 
-def tensor2disp(tensor, ind):
+def tensor2disp(tensor, ind, vmax = None):
     # slice = tensor[]
     # plt.imsave(name_dest_im, disp_resized_np, cmap='magma', vmax=vmax)
     slice = tensor[ind, 0, :, :].cpu().numpy()
-    vmax = np.percentile(slice, 95)
+    if vmax is None:
+        vmax = np.percentile(slice, 90)
     slice = slice / vmax
     cm = plt.get_cmap('magma')
     slice = (cm(slice) * 255).astype(np.uint8)
     # pil.fromarray(slice).show()
     return pil.fromarray(slice)
-
 
 class Tensor23dPts:
     def __init__(self):
@@ -172,8 +175,56 @@ class Tensor23dPts:
 
         return img
 
+class Comp1dgrad(nn.Module):
+    def __init__(self):
+        super(Comp1dgrad, self).__init__()
+        self.act = nn.Sigmoid()
+        self.gradth = 0.1
+        self.init_gradconv()
+        self.init_gaussconv(kernel_size=3, sigma=2, channels=1)
 
 
+
+    def init_gaussconv(self, kernel_size=3, sigma=2, channels=1):
+        self.gaussconv = get_gaussian_kernel(kernel_size=kernel_size, sigma=sigma, channels=channels)
+        self.gaussconv.cuda()
+    def init_gradconv(self):
+        weightsx = torch.Tensor([[-1., 0., 1.],
+                                [-2., 0., 2.],
+                                [-1., 0., 1.]]).unsqueeze(0).unsqueeze(0)
+
+        weightsy = torch.Tensor([[1., 2., 1.],
+                                [0., 0., 0.],
+                                [-1., -2., -1.]]).unsqueeze(0).unsqueeze(0)
+        self.convx = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=0, bias=False)
+        self.convy = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=0, bias=False)
+
+        self.convx.weight = nn.Parameter(weightsx)
+        self.convy.weight = nn.Parameter(weightsy)
+
+        self.convx.weight.requires_grad = False
+        self.convy.weight.requires_grad = False
+
+        self.convx.cuda()
+        self.convy.cuda()
+        # self.gaussKernel =
+    def forward(self, tensor, boot = 1):
+        tensor_blurred = self.gaussconv(tensor)
+        grad_x = torch.abs(self.convx(tensor_blurred))
+        grad_y = torch.abs(self.convy(tensor_blurred))
+        # grad = (grad_x + grad_y - 0.012) / tensor_blurred[:,:,1:-1,1:-1] * 200 - 6
+        grad = (grad_x + grad_y - 0.012) / tensor_blurred[:, :, 1:-1, 1:-1] * 10 - 6
+        grad = self.act(grad)
+        # vmax = np.percentile(grad.cpu().numpy(), 99)
+        # a = grad.cpu().numpy()
+
+        # grad_x = torch.abs(tensor[:, :, :-1, :-1] - tensor[:, :, :-1, 1:])
+        # grad_y = torch.abs(tensor[:, :, :-1, :-1] - tensor[:, :, 1:, :-1])
+        # grad = (grad_x + grad_y) * boostParam
+        # grad = self.act(grad)
+        # tensor2disp(grad, ind = 0, vmax=1).show()
+        # tensor2disp(tensor, ind = 0).show()
+        return grad
 
 
 def evaluate(opt):
@@ -198,7 +249,7 @@ def evaluate(opt):
     if opt.dataset == 'cityscape':
         dataset = datasets.CITYSCAPERawDataset(opt.data_path, filenames,
                                            encoder_dict['height'], encoder_dict['width'],
-                                           [0], 4, is_train=False, tag=opt.dataset)
+                                           [0], 4, is_train=False, tag=opt.dataset, load_meta=True)
     elif opt.dataset == 'kitti':
         dataset = datasets.KITTIRAWDataset(opt.data_path, filenames,
                                            encoder_dict['height'], encoder_dict['width'],
@@ -232,7 +283,9 @@ def evaluate(opt):
     svRoot = '/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/figure_visual'
     index = 0
     isvisualize = True
+    viewEdgeMerge = False
     isHist = False
+    useGtSeman = True
     height = 256
     width = 512
     tensor23dPts = Tensor23dPts()
@@ -248,6 +301,9 @@ def evaluate(opt):
     if not os.path.exists(dirpath):
         os.makedirs(dirpath)
 
+    if viewEdgeMerge:
+        comp1dgrad = Comp1dgrad()
+
     with torch.no_grad():
         for idx, inputs in enumerate(dataloader):
             input_color = inputs[("color", 0, 0)].cuda()
@@ -262,17 +318,39 @@ def evaluate(opt):
                 for i in range(mulDisp.shape[1]):
                     rec[i,:] += torch.histc(mulDepth[:,i,:,:],bins=100,min=0,max=100).numpy()
             if isvisualize:
-                mergeDisp(inputs, outputs, eval=True)
+                if useGtSeman:
+                    # outputs[('mul_disp', 0)][:,2,:,:] = outputs[('mul_disp', 0)][:,2,:,:] * 0
+                    # outputs[('mul_disp', 0)][:, 12, :, :] = outputs[('mul_disp', 0)][:, 12, :, :] * 0
+                    mergeDisp(inputs, outputs, eval=False)
+                else:
+                    mergeDisp(inputs, outputs, eval=True)
 
                 dispMap = outputs[('disp', 0)]
                 scaled_disp, mulDepth = disp_to_depth(dispMap, 0.1, 100)
                 mulDepth = mulDepth * STEREO_SCALE_FACTOR
 
-                fig_seman = tensor2semantic(outputs[('seman', 0)], ind=index)
+                if useGtSeman:
+                    fig_seman = tensor2semantic(inputs['seman_gt'], ind=index, isGt=True)
+                else:
+                    fig_seman = tensor2semantic(outputs[('seman', 0)], ind=index)
                 fig_rgb = tensor2rgb(inputs[('color', 0, 0)], ind=index)
                 fig_disp = tensor2disp(outputs[('disp', 0)], ind=index)
                 fig_3d = tensor23dPts.visualize3d(mulDepth, ind = index, intrinsic= inputs['cts_meta']['intrinsic'][index, :, :], extrinsic= inputs['cts_meta']['extrinsic'][index, :, :], gtmask=inputs['cts_meta']['mask'][index, :, :], gtdepth=inputs['cts_meta']['depthMap'][index, :, :], semanticMap=inputs['seman_gt_eval'][index, :, :])
-                combined = [np.array(fig_disp)[:,:,0:3], np.array(fig_seman), np.array(fig_rgb)]
+                fig_grad = None
+                if viewEdgeMerge:
+                    grad_disp = comp1dgrad(outputs[('mul_disp', 0)])
+                    fig_grad = tensor2disp(grad_disp, ind = index, vmax=1)
+                    fig_grad = fig_grad.resize([512, 256])
+                if fig_grad is not None:
+                    grad_seman = (np.array(fig_grad)[:, :, 0:3].astype(np.float) * 0.7 + np.array(fig_seman).astype(np.float) * 0.3).astype(np.uint8)
+                    # combined = [np.array(fig_disp)[:, :, 0:3], np.array(fig_grad)[:, :, 0:3], np.array(fig_seman), np.array(fig_rgb)]
+                    combined = [grad_seman, np.array(fig_disp)[:, :, 0:3], np.array(fig_rgb)]
+                else:
+                    disp_seman = (np.array(fig_disp)[:, :, 0:3].astype(np.float) * 0.8 + np.array(fig_seman).astype(np.float) * 0.2).astype(np.uint8)
+                    rgb_seman = (np.array(fig_seman).astype(np.float) * 0.5 + np.array(fig_rgb).astype(np.float) * 0.5).astype(np.uint8)
+                    # combined = [np.array(disp_seman)[:,:,0:3], np.array(fig_disp)[:, :, 0:3], np.array(fig_seman), np.array(fig_rgb)]
+                    combined = [np.array(disp_seman)[:, :, 0:3], np.array(fig_disp)[:, :, 0:3], np.array(fig_seman),
+                                np.array(rgb_seman)]
                 combined = np.concatenate(combined, axis=1)
                 fig = pil.fromarray(combined)
                 fig.save(os.path.join(dirpath, str(idx) + '.png'))
@@ -296,8 +374,6 @@ def evaluate(opt):
                 print("%dth saved" % idx)
                 if idx == 40:
                     a =1
-
-
 
     # If compute the histogram
     if isHist:

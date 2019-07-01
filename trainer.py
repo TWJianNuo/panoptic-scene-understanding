@@ -491,6 +491,54 @@ class Trainer:
                 else:
                     reprojection_loss = reprojection_losses
 
+
+                """
+                # Check
+                viewInd = 1
+                errormap = reprojection_loss[viewInd, 0, :, :].detach().cpu().numpy()
+                vmax = np.percentile(errormap, 90)
+                slice = errormap / vmax
+                cm = plt.get_cmap('magma')
+                slice = (cm(slice) * 255).astype(np.uint8)
+
+                pred = outputs[("color", frame_id, scale)]
+                pred = pred[viewInd, :, :, :].detach().cpu().permute(1,2,0).numpy()
+                pred = (pred * 255).astype(np.uint8)
+
+                org = inputs[("color_aug", 0, source_scale)]
+                org = org[viewInd, :, :, :].detach().cpu().permute(1,2,0).numpy()
+                org = (org * 255).astype(np.uint8)
+
+                andMask = outputs['gtMask'][:, 0, :, :] * inputs[('mask', 0)]
+                andMask = andMask[0,:,:].cpu().numpy()
+                masked_errormap = errormap * andMask
+                masked_errormap = masked_errormap / vmax
+                masked_errormap = (cm(masked_errormap) * 255).astype(np.uint8)
+
+                andMask = outputs['gtMask'][:, 0, :, :] * inputs[('mask', 0)]
+                andMask = andMask[0,:,:].cpu().numpy()
+                andMask = np.expand_dims((andMask * 255).astype(np.uint8), 2)
+                andMask = np.repeat(andMask, 3, 2)
+
+                combined = np.concatenate([slice[:,:,0:3],masked_errormap[:,:,0:3], pred, org, andMask], axis=1)
+                pil.fromarray(combined).show()
+
+                muldisp = outputs[('mul_disp', 0)][viewInd,:,:,:]
+                disp = outputs[('disp', 0)][viewInd,0,:,:].detach().cpu().numpy() / 0.2
+                gtsemanMap = inputs['seman_gt'][viewInd,0,:,:].detach().cpu().numpy()
+                for k in range(muldisp.shape[0] - 1):
+                    newMask = gtsemanMap == k
+                    if np.sum(newMask) < 100:
+                        continue
+                    dispmap = muldisp[k, :, :].detach().cpu().numpy() / 0.2
+                    dispmap_spec = dispmap * newMask
+                    dispmap = (cm(disp) * 255).astype(np.uint8)
+                    dispmap_spec = (cm(dispmap_spec) * 255).astype(np.uint8)
+                    edgeCombine = np.concatenate([dispmap_spec[:,:,0:3],dispmap[:,:,0:3]], axis=1)
+                    pil.fromarray(edgeCombine).show()
+                """
+
+
                 if not self.opt.disable_automasking:
                     # add random numbers to break ties
                     identity_reprojection_loss += torch.randn(
@@ -516,16 +564,13 @@ class Trainer:
                     to_optimise = to_optimise
                 loss += to_optimise.mean()
 
-                mult_disp = outputs[('mul_disp', scale)][:,0:-1:,:]
-                # mult_disp = F.interpolate(
-                #     mult_disp, [color.shape[2], color.shape[3]], mode="bilinear", align_corners=False)
-                mean_disp = mult_disp.mean(2, True).mean(3, True)
-                norm_disp = mult_disp / (mean_disp + 1e-7)
-                # mean_disp = disp.mean(2, True).mean(3, True)
-                # norm_disp = disp / (mean_disp + 1e-7)
-                # smooth_loss = get_smooth_loss(norm_disp, color)
-                smooth_loss = get_smooth_loss(norm_disp, color)
-                loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
+                if self.opt.disparity_smoothness < 1e-10:
+                    # Only add smoothness loss if required
+                    mult_disp = outputs[('mul_disp', scale)][:,0:-1:,:]
+                    mean_disp = mult_disp.mean(2, True).mean(3, True)
+                    norm_disp = mult_disp / (mean_disp + 1e-7)
+                    smooth_loss = get_smooth_loss(norm_disp, color)
+                    loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
                 total_loss += loss
                 losses["loss_depth/{}".format(scale)] = loss
             total_loss = total_loss / self.num_scales

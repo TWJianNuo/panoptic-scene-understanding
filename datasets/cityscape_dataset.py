@@ -26,7 +26,7 @@ import matplotlib.pyplot as plt
 class CITYSCAPEDataset(SingleDataset):
     """Superclass for different types of KITTI dataset loaders
     """
-    def __init__(self, data_path, filenames, height, width, frame_idxs, num_scales, tag, is_train=False, img_ext='.png', load_depth = False):
+    def __init__(self, data_path, filenames, height, width, frame_idxs, num_scales, tag, is_train=False, img_ext='.png', load_depth = False, load_meta = False):
         super(CITYSCAPEDataset, self).__init__(data_path, filenames, height, width, frame_idxs, num_scales, tag, is_train=False, img_ext='.png')
         # self.kitti_K = np.array([[0.58, 0, 0.5, 0],
         #                         [0, 1.92, 0.5, 0],
@@ -38,6 +38,7 @@ class CITYSCAPEDataset(SingleDataset):
         self.side_map = {"l": "leftImg8bit", "r": "rightImg8bit"}
         self.change_resize()
         self.mask = None
+        self.load_meta = load_meta
         self.load_mask()
         if load_depth:
             # Need to overwrite prev flag
@@ -55,7 +56,7 @@ class CITYSCAPEDataset(SingleDataset):
         return False
 
     def check_cityscape_meta(self):
-        return False
+        return self.load_meta
 
     def get_color(self, folder, frame_index, side, do_flip):
         imgPath = self.get_image_path(folder, frame_index, side)
