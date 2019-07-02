@@ -306,10 +306,11 @@ class Merge_MultDisp(nn.Module):
         width = inputs[('color', 0, 0)].shape[3]
         outputFormat = [self.batchSize, self.semanType + 1, height, width]
 
-        for scale in self.scales:
-            se_gt_name = ('seman', scale)
-            seg = F.interpolate(outputs[se_gt_name], size=[height, width], mode='bilinear', align_corners=False)
-            outputs[se_gt_name] = seg
+        if ('seman', 0) in outputs:
+            for scale in self.scales:
+                se_gt_name = ('seman', scale)
+                seg = F.interpolate(outputs[se_gt_name], size=[height, width], mode='bilinear', align_corners=False)
+                outputs[se_gt_name] = seg
 
         if self.isMulChannel:
             for scale in self.scales:
@@ -340,22 +341,14 @@ class Merge_MultDisp(nn.Module):
                                                  mode="bilinear", align_corners=False)
                     outputs[('disp_weights', scale)] = disp_weights
 
-
             # outputs['disp_weights'] = disp_weights
             for scale in self.scales:
                 ref_name = ('mul_disp', scale)
                 outputs[('disp', scale)] = torch.sum(outputs[ref_name] * outputs[('disp_weights', scale)], dim=1, keepdim=True)
         else:
             for scale in self.scales:
-                # disp_pred_name = ('mul_disp', scale)
-                # disp = F.interpolate(outputs[disp_pred_name], [height, width], mode="bilinear", align_corners=False)
-                # outputs[disp_pred_name] = disp
                 ref_name = ('mul_disp', scale)
                 outputs[('disp', scale)] = outputs[ref_name]
-
-            # for scale in self.scales:
-            #     ref_name = ('mul_disp', scale)
-            #     outputs[('disp', scale)] = outputs[ref_name]
 
 class Compute_SemanticLoss(nn.Module):
     def __init__(self, classtype = 19, min_scale = 3):
@@ -376,7 +369,6 @@ class Compute_SemanticLoss(nn.Module):
         # img = pil.fromarray((inputs[("color_aug", 0, 0)].permute(0,2,3,1)[0,:,:,:].cpu().numpy() * 255).astype(np.uint8))
         # img.show()
         # visualize_semantic(pred[0,:,:]).show()
-
         loss_toshow = dict()
         loss = 0
         for scale in self.scales:
@@ -388,7 +380,6 @@ class Compute_SemanticLoss(nn.Module):
             cenl = self.cen(scaled, label.squeeze(1))
             loss_toshow["loss_seman/{}".format(scale)] = cenl
             loss = loss + cenl
-
             # just for check
             # m1 = rearranged[mask[:,0], :]
             # m2 = label[mask]
@@ -396,3 +387,14 @@ class Compute_SemanticLoss(nn.Module):
             # loss_self = -log()
         loss = loss / len(self.scales)
         return loss, loss_toshow
+
+# class ComputeSelfOccluMask(nn.Module):
+#     def __init__(self):
+#         super(ComputeSelfOccluMask, self).__init__()
+#         self.minacc = 3
+#     def forward(self, dispact, fl, bs, min_depth, max_depth):
+#         min_disp = 1 / max_depth
+#         max_disp = 1 / min_depth
+#         disp = min_disp + (max_disp - min_disp) * dispact
+#         disp = fl * bs * disp
+#         return disp
