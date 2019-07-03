@@ -392,7 +392,7 @@ class Trainer:
             outputs[("depth", 0, scale)] = depth
 
             frame_id = "s"
-            T = outputs[("cam_T_cam", 0, frame_id)]
+            T = inputs["stereo_T"]
             cam_points = self.backproject_depth[(tag, source_scale)](
                 depth, inputs[("inv_K", source_scale)])
             pix_coords = self.project_3d[(tag, source_scale)](
