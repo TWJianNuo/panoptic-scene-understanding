@@ -129,8 +129,8 @@ class Trainer:
         tags = list()
         for t in self.format:
             tags.append(t[0])
-        for p, tag in enumerate(tags):
-            self.compsurfnorm[tag] = ComputeSurfaceNormal(self.format[p][1], self.format[p][2], self.opt.batch_size)
+        # for p, tag in enumerate(tags):
+        #     self.compsurfnorm[tag] = ComputeSurfaceNormal(self.format[p][1], self.format[p][2], self.opt.batch_size)
         for p, tag in enumerate(tags):
             height = self.format[p][1]
             width = self.format[p][2]
