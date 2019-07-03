@@ -71,6 +71,9 @@ class KITTIDataset(SingleDataset):
     def check_cityscape_meta(self):
         return False
 
+    def get_camK(self, folder):
+        return np.eye(4), np.eye(4)
+
 class KITTIRAWDataset(KITTIDataset):
     """KITTI dataset which loads the original velodyne depth maps for ground truth
     """

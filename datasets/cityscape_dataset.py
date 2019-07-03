@@ -109,6 +109,16 @@ class CITYSCAPEDataset(SingleDataset):
         # if ck not in self.ctsImg_sz_rec.keys():
         #     self.ctsImg_sz_rec[ck] = re_size
         return K
+    def get_camK(self, folder):
+        intrParam, extrParam = self.get_intrin_extrin_param(folder)
+        xscale = self.width / self.full_res_shape[0]
+        yscale = self.height / self.full_res_shape[1]
+        # xscale = 0.5
+        # yscale = 0.5
+        intrinsic, extrinsic = self.process_InExParam2Matr(intrParam, extrParam, xscale=xscale, yscale=yscale)
+        camK = (intrinsic @ extrinsic).astype(np.float32)
+        invcamK = np.linalg.inv(camK).astype(np.float32)
+        return camK, invcamK, intrinsic.astype(np.float32), extrinsic.astype(np.float32)
     def get_rescaleFac(self, folder):
         cts_focal, cts_baseline = self.get_cityscape_cam_param(folder)
         kitti_baseline = 0.54
@@ -134,34 +144,37 @@ class CITYSCAPEDataset(SingleDataset):
     def check_seman(self):
         return True
 
-    def process_InExParam2Matr(self, intr, extr):
+    def process_InExParam2Matr(self, intr, extr, xscale = 1, yscale = 1):
         intrinsic = np.eye(3)
         intrinsic[0,0] = intr['fx']
         intrinsic[1, 1] = intr['fy']
         intrinsic[0, 2] = intr['u0']
         intrinsic[1, 2] = intr['v0']
         intrinsic[2, 2] = 1
+
+        scaleChange = np.eye(3)
+        scaleChange[0, 0] = xscale
+        scaleChange[1, 1] = yscale
+        intrinsic = scaleChange @ intrinsic
+
         post = np.array([
             [0, -1, 0],
             [0, 0, -1],
             [1, 0, 0]
         ])
-        intrinsic = intrinsic @ post
+        # intrinsic = intrinsic @ post
         intrinsic_ex = np.eye(4)
         intrinsic_ex[0:3,0:3] = intrinsic
 
         extrinsic = np.eye(4)
         rotM = angle2matrix(pitch = extr['pitch'], roll = extr['roll'], yaw = extr['yaw'])
         trans = np.array([extr['x'], extr['y'], extr['z']])
-        # to check
-        # chekc = np.eye(4)
-        # chekc[0:3,0:3] = rotM
-        # chekc[0:3,3] = trans
 
         rotM = rotM.T
         trans = - rotM @ trans
         extrinsic[0:3,0:3] = rotM
         extrinsic[0:3,3] = trans
+        extrinsic[0:3, :] = post @ extrinsic[0:3, :]
 
 
         return intrinsic_ex, extrinsic

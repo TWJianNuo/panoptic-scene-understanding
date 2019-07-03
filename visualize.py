@@ -79,25 +79,17 @@ class Tensor23dPts:
         extrinsic = extrinsic.cpu().numpy()
         slice = tensor[ind, 0, :, :].cpu().numpy()
 
-
-        # xx, yy = np.meshgrid(np.arange(self.width), np.arange(self.height))
-        # xx = xx.flatten()
-        # yy = yy.flatten()
         depthFlat = slice.flatten()
         oneColumn = np.ones(self.height * self.width)
         pixelLoc = np.stack([self.xx * depthFlat, self.yy * depthFlat, depthFlat, oneColumn], axis=1)
         cam_coord = (np.linalg.inv(intrinsic) @ pixelLoc.T).T
-        # mask = np.sum(np.square(cam_coord[:,0:3]), axis=1) < 100
         veh_coord = (np.linalg.inv(extrinsic) @ cam_coord.T).T
-        # xx, yy = np.meshgrid(np.arange(self.width), np.arange(self.height))
-        # veh_coord = veh_coord[:,2].reshape(xx.shape)
         colors = None
 
         if gtmask is not None and gtdepth is not None:
-            # mask = gtmask == 1
-            # gtmask = gtmask.cpu().numpy()
             gtdepth = gtdepth.cpu().numpy()
             mask = gtdepth > 0
+            # mask = gtdepth > -1000000
             mask = mask.flatten()
             depthFlat = gtdepth.flatten()
             oneColumn = np.ones(gtdepth.shape[0] * gtdepth.shape[1])
@@ -116,27 +108,19 @@ class Tensor23dPts:
 
 
         camPos = (np.linalg.inv(extrinsic) @ np.array([0,0,0,1]).T).T
-        camDir = (np.linalg.inv(extrinsic) @ np.array([1,0,0,1]).T).T
         veh_coord[:, 0:3] = veh_coord[:, 0:3] - np.repeat(np.expand_dims(camPos, 0)[:,0:3], veh_coord.shape[0], 0)
         veh_coord_2[:, 0:3] = veh_coord_2[:, 0:3] - np.repeat(np.expand_dims(camPos, 0)[:,0:3], veh_coord_2.shape[0], 0)
 
-        # camDir = camDir - camPos
-        # radius = np.sqrt(np.sum(np.square(camPos[0:3])))
-        # theta = np.arccos(camPos[2] / radius)
-        # phi = np.arctan2(camPos[1], camPos[0])
         tmpImgName = 'tmp1.png'
         fig = plt.figure()
         ax = Axes3D(fig)
         ax.view_init(elev=6., azim=170)
         ax.dist = 4
-        # ax = fig.add_subplot(111, projection='3d')
         if colors is None:
             ax.scatter(veh_coord[0::100,0], veh_coord[0::100,1], veh_coord[0::100,2], s=0.1, c = 'b')
             ax.scatter(veh_coord_2[0::100, 0], veh_coord_2[0::100, 1], veh_coord_2[0::100, 2], s=0.1, c='r')
         else:
-            # ax.scatter(veh_coord[0::50,0], veh_coord[0::50,1], veh_coord[0::50,2], s=0.5, c = colors[0::50, :])
             ax.scatter(veh_coord_2[0::50, 0], veh_coord_2[0::50, 1], veh_coord_2[0::50, 2], s=0.5, c = colors[0::50, :])
-            # ax.plot_surface(xx, yy, veh_coord)
         ax.scatter(camPos[0], camPos[1], camPos[2], s=10, c='g')
         ax.set_zlim(-10, 10)
         plt.ylim([-10, 10])
@@ -144,23 +128,18 @@ class Tensor23dPts:
         set_axes_equal(ax)
         fig.savefig(tmpImgName)
         plt.close(fig)
-
         img1 = pil.open(tmpImgName)
-        # time.sleep(1)
 
         tmpImgName = 'tmp2.png'
         fig = plt.figure()
         ax = Axes3D(fig)
         ax.view_init(elev=6., azim=170)
         ax.dist = 4
-        # ax = fig.add_subplot(111, projection='3d')
         if colors is None:
             ax.scatter(veh_coord[0::100,0], veh_coord[0::100,1], veh_coord[0::100,2], s=0.1, c = 'b')
             ax.scatter(veh_coord_2[0::100, 0], veh_coord_2[0::100, 1], veh_coord_2[0::100, 2], s=0.1, c='r')
         else:
             ax.scatter(veh_coord[0::50,0], veh_coord[0::50,1], veh_coord[0::50,2], s=0.5, c = colors[0::50, :])
-            # ax.scatter(veh_coord_2[0::50, 0], veh_coord_2[0::50, 1], veh_coord_2[0::50, 2], s=0.5, c = colors[0::50, :])
-            # ax.plot_surface(xx, yy, veh_coord)
         ax.scatter(camPos[0], camPos[1], camPos[2], s=10, c='g')
         ax.set_zlim(-10, 10)
         plt.ylim([-10, 10])
@@ -168,12 +147,10 @@ class Tensor23dPts:
         set_axes_equal(ax)
         fig.savefig(tmpImgName)
         plt.close(fig)
-        # time.sleep(1)
         img2 = pil.open(tmpImgName)
-        # time.sleep(1)
         img = Image.fromarray(np.concatenate([np.array(img1)[:,:,0:3], np.array(img2)[:,:,0:3]], axis=1))
 
-        return img
+        return img, veh_coord, veh_coord_2
 
 class Comp1dgrad(nn.Module):
     def __init__(self):
@@ -199,11 +176,8 @@ class Comp1dgrad(nn.Module):
         self.convx = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=0, bias=False)
         self.convy = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=0, bias=False)
 
-        self.convx.weight = nn.Parameter(weightsx)
-        self.convy.weight = nn.Parameter(weightsy)
-
-        self.convx.weight.requires_grad = False
-        self.convy.weight.requires_grad = False
+        self.convx.weight = nn.Parameter(weightsx,requires_grad=False)
+        self.convy.weight = nn.Parameter(weightsy,requires_grad=False)
 
         self.convx.cuda()
         self.convy.cuda()
@@ -286,6 +260,7 @@ def evaluate(opt):
     viewEdgeMerge = False
     isHist = False
     useGtSeman = True
+    viewSurfaceNormal = True
     height = 256
     width = 512
     tensor23dPts = Tensor23dPts()
@@ -304,6 +279,8 @@ def evaluate(opt):
     if viewEdgeMerge:
         comp1dgrad = Comp1dgrad()
 
+    if viewSurfaceNormal:
+        compsn = ComputeSurfaceNormal(height = height, width = width, batch_size = opt.batch_size, typenum=20)
     with torch.no_grad():
         for idx, inputs in enumerate(dataloader):
             input_color = inputs[("color", 0, 0)].cuda()
@@ -326,17 +303,28 @@ def evaluate(opt):
                     mergeDisp(inputs, outputs, eval=True)
 
                 dispMap = outputs[('disp', 0)]
-                scaled_disp, mulDepth = disp_to_depth(dispMap, 0.1, 100)
-                mulDepth = mulDepth * STEREO_SCALE_FACTOR
+                scaled_disp, depthMap = disp_to_depth(dispMap, 0.1, 100)
+                depthMap = depthMap * STEREO_SCALE_FACTOR
+                _, mul_depthMap = disp_to_depth(outputs[('mul_disp', 0)], 0.1, 100)
+                mul_depthMap = mul_depthMap * STEREO_SCALE_FACTOR
 
                 if useGtSeman:
                     fig_seman = tensor2semantic(inputs['seman_gt'], ind=index, isGt=True)
                 else:
                     fig_seman = tensor2semantic(outputs[('seman', 0)], ind=index)
+
                 fig_rgb = tensor2rgb(inputs[('color', 0, 0)], ind=index)
                 fig_disp = tensor2disp(outputs[('disp', 0)], ind=index)
-                fig_3d = tensor23dPts.visualize3d(mulDepth, ind = index, intrinsic= inputs['cts_meta']['intrinsic'][index, :, :], extrinsic= inputs['cts_meta']['extrinsic'][index, :, :], gtmask=inputs['cts_meta']['mask'][index, :, :], gtdepth=inputs['cts_meta']['depthMap'][index, :, :], semanticMap=inputs['seman_gt_eval'][index, :, :])
+                fig_3d, veh_coord, veh_coord_gt = tensor23dPts.visualize3d(depthMap, ind = index, intrinsic= inputs['cts_meta']['intrinsic'][index, :, :], extrinsic= inputs['cts_meta']['extrinsic'][index, :, :], gtmask=inputs['cts_meta']['mask'][index, :, :], gtdepth=inputs['cts_meta']['depthMap'][index, :, :], semanticMap=inputs['seman_gt_eval'][index, :, :])
+                # check:
+                # torch.inverse(inputs['invcamK'][index, :, :] @ inputs['realIn'][index, :, :]) - inputs['cts_meta']['extrinsic'][index, :, :]
                 fig_grad = None
+
+                if viewSurfaceNormal:
+                    # surnorm = compsn.visualize(depthMap = depthMap, invcamK = inputs['invcamK'].cuda(), orgEstPts = veh_coord, gtEstPts = veh_coord_gt, viewindex = index)
+                    surnorm = compsn.visualize(depthMap=mul_depthMap, invcamK=inputs['invcamK'].cuda(), orgEstPts=veh_coord,
+                                               gtEstPts=veh_coord_gt, viewindex=index)
+
                 if viewEdgeMerge:
                     grad_disp = comp1dgrad(outputs[('mul_disp', 0)])
                     fig_grad = tensor2disp(grad_disp, ind = index, vmax=1)
@@ -346,11 +334,19 @@ def evaluate(opt):
                     # combined = [np.array(fig_disp)[:, :, 0:3], np.array(fig_grad)[:, :, 0:3], np.array(fig_seman), np.array(fig_rgb)]
                     combined = [grad_seman, np.array(fig_disp)[:, :, 0:3], np.array(fig_rgb)]
                 else:
-                    disp_seman = (np.array(fig_disp)[:, :, 0:3].astype(np.float) * 0.8 + np.array(fig_seman).astype(np.float) * 0.2).astype(np.uint8)
-                    rgb_seman = (np.array(fig_seman).astype(np.float) * 0.5 + np.array(fig_rgb).astype(np.float) * 0.5).astype(np.uint8)
-                    # combined = [np.array(disp_seman)[:,:,0:3], np.array(fig_disp)[:, :, 0:3], np.array(fig_seman), np.array(fig_rgb)]
-                    combined = [np.array(disp_seman)[:, :, 0:3], np.array(fig_disp)[:, :, 0:3], np.array(fig_seman),
-                                np.array(rgb_seman)]
+                    if viewSurfaceNormal:
+                        surnorm = surnorm.resize([512, 256])
+                        surnorm_mixed = pil.fromarray((np.array(surnorm) * 0.2 + np.array(fig_disp)[:, :, 0:3] * 0.8).astype(np.uint8))
+                        disp_seman = (np.array(fig_disp)[:, :, 0:3].astype(np.float) * 0.8 + np.array(fig_seman).astype(np.float) * 0.2).astype(np.uint8)
+                        rgb_seman = (np.array(fig_seman).astype(np.float) * 0.5 + np.array(fig_rgb).astype(np.float) * 0.5).astype(np.uint8)
+                        combined = [np.array(disp_seman)[:, :, 0:3], np.array(fig_disp)[:, :, 0:3], np.array(surnorm_mixed), np.array(surnorm), np.array(fig_seman),
+                                    np.array(rgb_seman)]
+                    else:
+                        disp_seman = (np.array(fig_disp)[:, :, 0:3].astype(np.float) * 0.8 + np.array(fig_seman).astype(np.float) * 0.2).astype(np.uint8)
+                        rgb_seman = (np.array(fig_seman).astype(np.float) * 0.5 + np.array(fig_rgb).astype(np.float) * 0.5).astype(np.uint8)
+                        # combined = [np.array(disp_seman)[:,:,0:3], np.array(fig_disp)[:, :, 0:3], np.array(fig_seman), np.array(fig_rgb)]
+                        combined = [np.array(disp_seman)[:, :, 0:3], np.array(fig_disp)[:, :, 0:3], np.array(fig_seman),
+                                    np.array(rgb_seman)]
                 combined = np.concatenate(combined, axis=1)
                 fig = pil.fromarray(combined)
                 fig.save(os.path.join(dirpath, str(idx) + '.png'))
@@ -372,9 +368,6 @@ def evaluate(opt):
                 # a = inputs['seman_gt_eval']
                 # scaled_disp, _ = disp_to_depth(outputs[('disp', 0)], 0.1, 100)
                 print("%dth saved" % idx)
-                if idx == 40:
-                    a =1
-
     # If compute the histogram
     if isHist:
         svPath = '/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/mul_channel_depth'

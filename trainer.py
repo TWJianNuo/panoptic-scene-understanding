@@ -40,6 +40,7 @@ class Trainer:
         # checking height and width are multiples of 32
         assert self.opt.height % 32 == 0, "'height' must be a multiple of 32"
         assert self.opt.width % 32 == 0, "'width' must be a multiple of 32"
+        self.STEREO_SCALE_FACTOR = 5.4
 
         if self.opt.switchMode == 'on':
             self.switchMode = True
@@ -122,11 +123,14 @@ class Trainer:
         """
         self.semanticLoss = Compute_SemanticLoss(min_scale = self.opt.semantic_minscale[0])
         self.merge_multDisp = Merge_MultDisp(self.opt.scales, batchSize = self.opt.batch_size, isMulChannel = self.opt.isMulChannel)
+        self.compsurfnorm = {}
         self.backproject_depth = {}
         self.project_3d = {}
         tags = list()
         for t in self.format:
             tags.append(t[0])
+        for p, tag in enumerate(tags):
+            self.compsurfnorm[tag] = ComputeSurfaceNormal(self.format[p][1], self.format[p][2], self.opt.batch_size)
         for p, tag in enumerate(tags):
             height = self.format[p][1]
             width = self.format[p][2]
@@ -139,6 +143,8 @@ class Trainer:
 
                 self.project_3d[(tag, scale)] = Project3D(self.opt.batch_size, h, w)
                 self.project_3d[(tag, scale)].to(self.device)
+        if self.opt.isMulReg:
+            self.mulreg = ObjRegularization()
 
     def set_dataset(self):
         """properly handle multiple dataset situation
@@ -385,51 +391,63 @@ class Trainer:
 
             outputs[("depth", 0, scale)] = depth
 
-            for i, frame_id in enumerate(self.opt.frame_ids[1:]):
+            frame_id = "s"
+            T = outputs[("cam_T_cam", 0, frame_id)]
+            cam_points = self.backproject_depth[(tag, source_scale)](
+                depth, inputs[("inv_K", source_scale)])
+            pix_coords = self.project_3d[(tag, source_scale)](
+                cam_points, inputs[("K", source_scale)], T)
 
-                if frame_id == "s":
-                    T = inputs["stereo_T"]
-                else:
-                    T = outputs[("cam_T_cam", 0, frame_id)]
+            outputs[("sample", frame_id, scale)] = pix_coords
 
-                cam_points = self.backproject_depth[(tag, source_scale)](
-                    depth, inputs[("inv_K", source_scale)])
-                pix_coords = self.project_3d[(tag, source_scale)](
-                    cam_points, inputs[("K", source_scale)], T)
+            outputs[("color", frame_id, scale)] = F.grid_sample(
+                inputs[("color", frame_id, source_scale)],
+                outputs[("sample", frame_id, scale)],
+                padding_mode="border")
 
-                outputs[("sample", frame_id, scale)] = pix_coords
+            if self.opt.isMulReg:
+                outputs['surfacenorm'] = self.compsurfnorm[tag](depth * self.STEREO_SCALE_FACTOR)
 
+            # for i, frame_id in enumerate(self.opt.frame_ids[1:]):
+            #     if frame_id == "s":
+            #         T = inputs["stereo_T"]
+            #     else:
+            #         T = outputs[("cam_T_cam", 0, frame_id)]
+            #     cam_points = self.backproject_depth[(tag, source_scale)](
+            #         depth, inputs[("inv_K", source_scale)])
+            #     pix_coords = self.project_3d[(tag, source_scale)](
+            #         cam_points, inputs[("K", source_scale)], T)
+            #     outputs[("sample", frame_id, scale)] = pix_coords
+            #     outputs[("color", frame_id, scale)] = F.grid_sample(
+            #         inputs[("color", frame_id, source_scale)],
+            #         outputs[("sample", frame_id, scale)],
+            #         padding_mode="border")
 
-                outputs[("color", frame_id, scale)] = F.grid_sample(
-                    inputs[("color", frame_id, source_scale)],
-                    outputs[("sample", frame_id, scale)],
-                    padding_mode="border")
-
-                # Check:
-                # depth = T[0,0,3] * inputs[("K", source_scale)][0,0,0] / scaledDisp
-                # ones = nn.Parameter(torch.ones(10, 1, 256 * 512)).cuda()
-                # inv_K = inputs[("inv_K", source_scale)]
-                # org_pix_coords = self.backproject_depth[(tag, source_scale)].pix_coords
-                # cam_points = torch.matmul(inv_K[:, :3, :3], org_pix_coords)
-                # cam_points = depth.view(10, 1, -1) * cam_points
-                # cam_points = torch.cat([cam_points, ones], 1)
-                #
-                # org_pix_coords = org_pix_coords[:,0:2,:]
-                #
-                # K = inputs[("K", source_scale)]
-                # T = T
-                # P = torch.matmul(K, T)[:, :3, :]
-                # cam_points = torch.matmul(P, cam_points)
-                # eps = 1e-7
-                # pix_coords = cam_points[:, :2, :] / (cam_points[:, 2, :].unsqueeze(1) + eps)
-                # bias = (pix_coords - org_pix_coords)[:,0,:]
-                # ratio = bias / scaledDisp[:,0,:,:].view(10,-1)
-                # var = torch.mean(torch.abs(bias - scaledDisp[:,0,:,:].view(10,-1)))
-
-                # visualize_outpu(inputs, outputs, '/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/recon_rg_img/kitti', np.random.randint(0, 100000, 1)[0])
-                # if not self.opt.disable_automasking:
-                #     outputs[("color_identity", frame_id, scale)] = \
-                #         inputs[("color", frame_id, source_scale)]
+            # Check:
+            # depth = T[0,0,3] * inputs[("K", source_scale)][0,0,0] / scaledDisp
+            # ones = nn.Parameter(torch.ones(10, 1, 256 * 512)).cuda()
+            # inv_K = inputs[("inv_K", source_scale)]
+            # org_pix_coords = self.backproject_depth[(tag, source_scale)].pix_coords
+            # cam_points = torch.matmul(inv_K[:, :3, :3], org_pix_coords)
+            # cam_points = depth.view(10, 1, -1) * cam_points
+            # cam_points = torch.cat([cam_points, ones], 1)
+            #
+            # org_pix_coords = org_pix_coords[:,0:2,:]
+            #
+            # K = inputs[("K", source_scale)]
+            # T = T
+            # P = torch.matmul(K, T)[:, :3, :]
+            # cam_points = torch.matmul(P, cam_points)
+            # eps = 1e-7
+            # pix_coords = cam_points[:, :2, :] / (cam_points[:, 2, :].unsqueeze(1) + eps)
+            # bias = (pix_coords - org_pix_coords)[:,0,:]
+            # ratio = bias / scaledDisp[:,0,:,:].view(10,-1)
+            # var = torch.mean(torch.abs(bias - scaledDisp[:,0,:,:].view(10,-1)))
+            #
+            # visualize_outpu(inputs, outputs, '/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/recon_rg_img/kitti', np.random.randint(0, 100000, 1)[0])
+            # if not self.opt.disable_automasking:
+            #     outputs[("color_identity", frame_id, scale)] = \
+            #         inputs[("color", frame_id, source_scale)]
 
     def compute_reprojection_loss(self, pred, target):
         """Computes reprojection loss between a batch of predicted and target images
@@ -562,7 +580,7 @@ class Trainer:
                     to_optimise = to_optimise
                 loss += to_optimise.mean()
 
-                if self.opt.disparity_smoothness < 1e-10:
+                if self.opt.disparity_smoothness > 1e-10:
                     # Only add smoothness loss if required
                     mult_disp = outputs[('mul_disp', scale)][:,0:-1:,:]
                     mean_disp = mult_disp.mean(2, True).mean(3, True)

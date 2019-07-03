@@ -235,6 +235,12 @@ class SingleDataset(data.Dataset):
         inputs["height"] = self.height
         inputs["width"] = self.width
         inputs["tag"] = self.tag
+        camK, invcamK, realIn, realEx = self.get_camK(folder)
+
+        inputs["camK"] = camK
+        inputs["invcamK"] = invcamK
+        inputs["realIn"] = realIn
+        inputs["realEx"] = realEx
         return inputs
 
     def get_color(self, folder, frame_index, side, do_flip):
@@ -262,4 +268,7 @@ class SingleDataset(data.Dataset):
         raise NotImplementedError
 
     def get_cityscape_meta(self, folder):
+        raise NotImplementedError
+
+    def get_camK(self, folder):
         raise NotImplementedError

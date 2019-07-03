@@ -14,6 +14,8 @@ import torch.nn.functional as F
 import time
 from copy import deepcopy
 from utils import *
+from mpl_toolkits.mplot3d import Axes3D
+from cityscapesscripts.helpers.labels import trainId2label, id2label
 
 def disp_to_depth(disp, min_depth, max_depth):
     """Convert network's sigmoid output into depth prediction
@@ -388,13 +390,146 @@ class Compute_SemanticLoss(nn.Module):
         loss = loss / len(self.scales)
         return loss, loss_toshow
 
-# class ComputeSelfOccluMask(nn.Module):
-#     def __init__(self):
-#         super(ComputeSelfOccluMask, self).__init__()
-#         self.minacc = 3
-#     def forward(self, dispact, fl, bs, min_depth, max_depth):
-#         min_disp = 1 / max_depth
-#         max_disp = 1 / min_depth
-#         disp = min_disp + (max_disp - min_disp) * dispact
-#         disp = fl * bs * disp
-#         return disp
+
+class ComputeSurfaceNormal(nn.Module):
+    def __init__(self, height, width, batch_size):
+        super(ComputeSurfaceNormal, self).__init__()
+        self.height = height
+        self.width = width
+        self.batch_size = batch_size
+        self.surnormType = ['road', 'sidewalk', 'building', 'wall', 'fence', 'pole', 'traffic sign', 'terrain']
+        # self.typenum = typenum
+        xx, yy = np.meshgrid(np.arange(self.width), np.arange(self.height))
+        xx = xx.flatten().astype(np.float32)
+        yy = yy.flatten().astype(np.float32)
+        self.pix_coords = np.expand_dims(np.stack([xx, yy, np.ones(self.width * self.height).astype(np.float32)], axis=1), axis=0).repeat(self.batch_size * self.typenum, axis=0)
+        self.pix_coords = torch.from_numpy(self.pix_coords).permute(0,2,1)
+        self.ones = torch.ones(self.batch_size * self.typenum, 1, self.height * self.width)
+        self.pix_coords = self.pix_coords.cuda()
+        self.ones = self.ones.cuda()
+        self.init_gradconv()
+
+    def init_gradconv(self):
+        weightsx = torch.Tensor([
+                                [-1., 0., 1.],
+                                [-2., 0., 2.],
+                                [-1., 0., 1.]]).unsqueeze(0).unsqueeze(0)
+
+        weightsy = torch.Tensor([
+                                [1., 2., 1.],
+                                [0., 0., 0.],
+                                [-1., -2., -1.]]).unsqueeze(0).unsqueeze(0)
+        self.convx = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=0, bias=False)
+        self.convy = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=0, bias=False)
+
+        self.convx.weight = nn.Parameter(weightsx,requires_grad=False)
+        self.convy.weight = nn.Parameter(weightsy,requires_grad=False)
+
+        self.convx.cuda()
+        self.convy.cuda()
+
+
+    def forward(self, depthMap, invcamK):
+        depthMap = depthMap.view(self.batch_size, -1)
+        cam_coords = self.pix_coords * torch.stack([depthMap, depthMap, depthMap], dim=1)
+        cam_coords = torch.cat([cam_coords, self.ones], dim=1)
+        veh_coords = torch.matmul(invcamK, cam_coords)
+        veh_coords = veh_coords.view(self.batch_size, 4, self.height, self.width)
+        veh_coords = veh_coords
+        changex = torch.cat([self.convx(veh_coords[:, 0:1, :, :]), self.convx(veh_coords[:, 1:2, :, :]), self.convx(veh_coords[:, 2:3, :, :])], dim=1)
+        changey = torch.cat([self.convy(veh_coords[:, 0:1, :, :]), self.convy(veh_coords[:, 1:2, :, :]), self.convy(veh_coords[:, 2:3, :, :])], dim=1)
+        surfnorm = torch.cross(changex, changey, dim=1)
+        surfnorm = F.normalize(surfnorm, dim = 1)
+        return surfnorm
+
+    def visualize(self, depthMap, invcamK, orgEstPts = None, gtEstPts = None, viewindex = 0):
+        # First compute 3d points in vehicle coordinate system
+        depthMap = depthMap.view(self.batch_size * self.typenum, -1)
+        cam_coords = self.pix_coords * torch.stack([depthMap, depthMap, depthMap], dim=1)
+        cam_coords = torch.cat([cam_coords, self.ones], dim=1)
+        veh_coords = torch.matmul(invcamK.repeat(self.typenum, 1, 1), cam_coords)
+        veh_coords = veh_coords.view(self.batch_size * self.typenum, 4, self.height, self.width)
+        veh_coords = veh_coords
+        changex = torch.cat([self.convx(veh_coords[:, 0:1, :, :]), self.convx(veh_coords[:, 1:2, :, :]), self.convx(veh_coords[:, 2:3, :, :])], dim=1)
+        changey = torch.cat([self.convy(veh_coords[:, 0:1, :, :]), self.convy(veh_coords[:, 1:2, :, :]), self.convy(veh_coords[:, 2:3, :, :])], dim=1)
+        surfnorm = torch.cross(changex, changey, dim=1)
+        surfnorm = F.normalize(surfnorm, dim = 1)
+
+        # check
+        # ckInd = 22222
+        # x = self.pix_coords[viewindex, 0, ckInd].long()
+        # y = self.pix_coords[viewindex, 1, ckInd].long()
+        # ptsck = veh_coords[viewindex, :, y, x]
+        # projecteck = torch.inverse(invcamK)[viewindex, :, :].cpu().numpy() @ ptsck.cpu().numpy().T
+        # x_ = projecteck[0] / projecteck[2]
+        # y_ = projecteck[1] / projecteck[2] # (x, y) and (x_, y_) should be equal
+
+        # colorize this figure
+        surfacecolor = surfnorm / 2 + 0.5
+        img = surfacecolor[viewindex, :, :, :].permute(1,2,0).cpu().numpy()
+        img = (img * 255).astype(np.uint8)
+        # pil.fromarray(img).show()
+
+        # objreg = ObjRegularization()
+        # varloss = varLoss(scale=1, windowsize=7, inchannel=surfnorm.shape[1])
+        # var = varloss(surfnorm)
+        # if orgEstPts is not None and gtEstPts is not None:
+        #     testPts = veh_coords[viewindex, :, :].permute(1,0).cpu().numpy()
+        #     fig = plt.figure()
+        #     ax = Axes3D(fig)
+        #     ax.view_init(elev=6., azim=170)
+        #     ax.dist = 4
+        #     ax.scatter(orgEstPts[0::100, 0], orgEstPts[0::100, 1], orgEstPts[0::100, 2], s=0.1, c='b')
+        #     ax.scatter(testPts[0::10, 0], testPts[0::10, 1], testPts[0::10, 2], s=0.1, c='g')
+        #     ax.scatter(gtEstPts[0::100, 0], gtEstPts[0::100, 1], gtEstPts[0::100, 2], s=0.1, c='r')
+        #     ax.set_zlim(-10, 10)
+        #     plt.ylim([-10, 10])
+        #     plt.xlim([10, 16])
+        #     set_axes_equal(ax)
+        return pil.fromarray(img)
+
+class varLoss(nn.Module):
+    def __init__(self, scale = 0, windowsize = 3, inchannel = 3):
+        super(varLoss, self).__init__()
+        assert windowsize % 2 != 0, "pls input odd kernel size"
+        self.scale = scale
+        self.windowsize = windowsize
+        self.inchannel = inchannel
+        self.initkernel()
+    def initkernel(self):
+        # kernel is for mean value calculation
+        weights = torch.ones((self.inchannel, 1, self.windowsize, self.windowsize))
+        weights = weights / (self.windowsize * self.windowsize)
+        self.conv = nn.Conv2d(in_channels=self.inchannel, out_channels=self.inchannel, kernel_size=self.windowsize, padding=0, bias=False, groups=self.inchannel)
+        self.conv.weight = nn.Parameter(weights, requires_grad=False)
+        self.conv.cuda()
+    def forward(self, input):
+        pad = int((self.windowsize - 1) / 2)
+        scaled = input[:,:, pad : -pad, pad : -pad] - self.conv(input)
+        loss = torch.mean(scaled * scaled) * self.scale
+        # check
+        # ckr = self.conv(input)
+        # exptime = 100
+        # for i in range(exptime):
+        #     batchind = torch.randint(0, ckr.shape[0], [1]).long()[0]
+        #     chanind = torch.randint(0, ckr.shape[1], [1]).long()[0]
+        #     xind = torch.randint(pad, ckr.shape[2]-pad, [1]).long()[0]
+        #     yind = torch.randint(pad, ckr.shape[3]-pad, [1]).long()[0]
+        #     ra = torch.mean(input[batchind, chanind, xind -pad : xind + pad + 1, yind - pad : yind + pad + 1])
+        #     assert torch.abs(ra - ckr[batchind, chanind, xind - pad, yind - pad]) < 1e-5, "wrong"
+        return loss
+
+class ObjRegularization(nn.Module):
+    # do object type wise regularization
+    # suppose we have channel wise object type
+    def __init__(self):
+        super(ObjRegularization, self).__init__()
+        regularizer = dict()
+        for id in trainId2label:
+            entry = trainId2label[id]
+            if entry.trainId >= 0 and entry.trainId != 255:
+                if entry.name == 'traffic sign':
+                    regularizer[entry.name] = varLoss(scale=1, windowsize = 7, inchannel = 3)
+
+    def regularize(self, tensor):
+        a = 1
