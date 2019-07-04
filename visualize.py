@@ -45,7 +45,8 @@ def tensor2disp(tensor, ind, vmax = None):
     slice = tensor[ind, 0, :, :].cpu().numpy()
     if vmax is None:
         vmax = np.percentile(slice, 90)
-    slice = slice / vmax
+    # slice = slice / vmax
+    slice = slice / slice.max()
     cm = plt.get_cmap('magma')
     slice = (cm(slice) * 255).astype(np.uint8)
     # pil.fromarray(slice).show()

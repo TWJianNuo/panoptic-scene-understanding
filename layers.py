@@ -551,20 +551,21 @@ class SelfOccluMask(nn.Module):
             convweights[i, 0, :, 0:2] = 1/6
             convweights[i, 0, :, i+2:i+3] = -1/3
         self.conv.weight = nn.Parameter(convweights, requires_grad=True)
-        self.weightck = (torch.sum(torch.abs(self.conv.weight)) + torch.sum(torch.abs(self.conv.bias)))
+        # self.weightck = (torch.sum(torch.abs(self.conv.weight)) + torch.sum(torch.abs(self.conv.bias)))
         # self.gausconv = get_gaussian_kernel(channels = 1, padding = 1)
         # self.gausconv.cuda()
     def forward(self, dispmap):
         # dispmap = self.gausconv(dispmap)
 
-        assert torch.abs(self.weightck - (torch.sum(torch.abs(self.conv.weight)) + torch.sum(torch.abs(self.conv.bias)))) < 1e-2, "weights changed"
-        width = dispmap.shape[3]
-        output = self.conv(dispmap)
-        output = torch.min(output, dim=1, keepdim=True)[0]
-        output = output[:,:,self.pad-1:-(self.pad-1):,-width:]
-        mask = torch.tanh(-output * self.boostfac)
-        mask = torch.clamp(mask, min=0)
-        return mask
+        # assert torch.abs(self.weightck - (torch.sum(torch.abs(self.conv.weight)) + torch.sum(torch.abs(self.conv.bias)))) < 1e-2, "weights changed"
+        with torch.no_grad():
+            width = dispmap.shape[3]
+            output = self.conv(dispmap)
+            output = torch.min(output, dim=1, keepdim=True)[0]
+            output = output[:,:,self.pad-1:-(self.pad-1):,-width:]
+            mask = torch.tanh(-output * self.boostfac)
+            mask = torch.clamp(mask, min=0)
+            return mask
     def visualize(self, dispmap, viewind = 0):
         cm = plt.get_cmap('magma')
 

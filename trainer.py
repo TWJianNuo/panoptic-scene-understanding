@@ -270,8 +270,8 @@ class Trainer:
                 if "depth_gt" in inputs:
                     self.compute_depth_losses(inputs, outputs, losses)
 
-                self.log("train", inputs, outputs, losses)
-                if self.step % 50 == 0:
+                self.log("train", inputs, outputs, losses, writeImage=False)
+                if self.step % 10 == 0:
                     self.val()
 
             # timeCount = np.array((self.timeSpan_decoder, self.timeSpan_mergeLayer, self.timeSpan_predict, self.timeSpan_loss))
@@ -365,7 +365,7 @@ class Trainer:
                 self.compute_depth_losses(inputs, outputs, losses)
             if 'seman_gt_eval' in inputs and ('seman', 0) in outputs:
                 self.compute_semantic_losses(inputs, outputs, losses)
-            self.log("val", inputs, outputs, losses)
+            self.log("val", inputs, outputs, losses, self.opt.writeImg)
             del inputs, outputs, losses
 
         self.set_train()
@@ -719,39 +719,34 @@ class Trainer:
         print(print_string.format(self.epoch, batch_idx, samples_per_sec, loss_semantic, loss_depth,
                                   sec_to_hm_str(time_sofar), sec_to_hm_str(training_time_left)))
 
-    def log(self, mode, inputs, outputs, losses):
+    def log(self, mode, inputs, outputs, losses, writeImage = False):
         """Write an event to the tensorboard events file
         """
         writer = self.writers[mode]
         for l, v in losses.items():
             writer.add_scalar("{}".format(l), v, self.step)
 
-        # for j in range(min(4, self.opt.batch_size)):
-        #     for s in self.opt.scales:
-        #         for frame_id in self.opt.frame_ids:
-        #             writer.add_image(
-        #                 "color_{}_{}/{}".format(frame_id, s, j),
-        #                 inputs[("color", frame_id, s)][j].data, self.step)
-        #             if s == 0 and frame_id != 0:
-        #                 writer.add_image(
-        #                     "color_pred_{}_{}/{}".format(frame_id, s, j),
-        #                     outputs[("color", frame_id, s)][j].data, self.step)
-        #
-        #         writer.add_image(
-        #             "disp_{}/{}".format(s, j),
-        #             normalize_image(outputs[("disp", s)][j]), self.step)
-        #
-        #         if self.opt.predictive_mask:
-        #             for f_idx, frame_id in enumerate(self.opt.frame_ids[1:]):
-        #                 writer.add_image(
-        #                     "predictive_mask_{}_{}/{}".format(frame_id, s, j),
-        #                     outputs["predictive_mask"][("disp", s)][j, f_idx][None, ...],
-        #                     self.step)
-        #
-        #         elif not self.opt.disable_automasking:
-        #             writer.add_image(
-        #                 "automask_{}/{}".format(s, j),
-        #                 outputs["identity_selection/{}".format(s)][j][None, ...], self.step)
+        if writeImage:
+            cm = plt.get_cmap('magma')
+            dispimg = outputs[("disp", 0)][0,0,:,:].cpu().numpy()
+            dispimg = dispimg / 0.1
+            viewmask = (cm(dispimg) * 255).astype(np.uint8)
+            pil.fromarray(viewmask).save("/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/trianRe/" + str(self.step) + ".png")
+
+            # for j in range(min(4, self.opt.batch_size)):
+            #     for s in self.opt.scales:
+            #         for frame_id in self.opt.frame_ids:
+            #             writer.add_image(
+            #                 "color_{}_{}/{}".format(frame_id, s, j),
+            #                 inputs[("color", frame_id, s)][j].data, self.step)
+            #             if s == 0 and frame_id != 0:
+            #                 writer.add_image(
+            #                     "color_pred_{}_{}/{}".format(frame_id, s, j),
+            #                     outputs[("color", frame_id, s)][j].data, self.step)
+            #
+            #         writer.add_image(
+            #             "disp_{}/{}".format(s, j),
+            #             normalize_image(outputs[("disp", s)][j]), self.step)
 
     def save_opts(self):
         """Save options to disk so we know what we ran this experiment with
