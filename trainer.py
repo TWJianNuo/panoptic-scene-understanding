@@ -577,6 +577,7 @@ class Trainer:
                     scaleSSIMMask = self.selfOccluMask(outputs[('disp', scale)])
                     dispupMap = self.dispupLoss(outputs[('disp', scale)])
                     dispupLoss = torch.mean(scaleSSIMMask * dispupMap)
+                    losses["loss_dispup/{}".format(scale)] = dispupLoss
                     loss += dispupLoss
                     # maskfig, dispfig = self.selfOccluMask.visualize(outputs[('disp', scale)])
 
