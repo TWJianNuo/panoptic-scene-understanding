@@ -126,6 +126,9 @@ class Trainer:
         self.compsurfnorm = {}
         self.backproject_depth = {}
         self.project_3d = {}
+        if self.opt.selfocclu:
+            self.selfOccluMask = SelfOccluMask().cuda()
+            self.dispupLoss = ComputeDispUpLoss().cuda()
         tags = list()
         for t in self.format:
             tags.append(t[0])
@@ -143,8 +146,8 @@ class Trainer:
 
                 self.project_3d[(tag, scale)] = Project3D(self.opt.batch_size, h, w)
                 self.project_3d[(tag, scale)].to(self.device)
-        if self.opt.isMulReg:
-            self.mulreg = ObjRegularization()
+        # if self.opt.isMulReg:
+        #     self.mulreg = ObjRegularization()
 
     def set_dataset(self):
         """properly handle multiple dataset situation
@@ -306,7 +309,6 @@ class Trainer:
         # torch.cuda.synchronize()
         # self.timeSpan_decoder = self.timeSpan_decoder + start_decoder.elapsed_time(end_decoder)
 
-
         # start_merge = torch.cuda.Event(enable_timing=True)
         # end_merge = torch.cuda.Event(enable_timing=True)
         # start_merge.record()
@@ -314,7 +316,6 @@ class Trainer:
         # end_merge.record()
         # torch.cuda.synchronize()
         # self.timeSpan_mergeLayer = self.timeSpan_mergeLayer + start_merge.elapsed_time(end_merge)
-
 
         # start_predict = torch.cuda.Event(enable_timing=True)
         # end_predict = torch.cuda.Event(enable_timing=True)
@@ -405,8 +406,8 @@ class Trainer:
                 outputs[("sample", frame_id, scale)],
                 padding_mode="border")
 
-            if self.opt.isMulReg:
-                outputs['surfacenorm'] = self.compsurfnorm[tag](depth * self.STEREO_SCALE_FACTOR)
+            # if self.opt.isMulReg:
+            #     outputs['surfacenorm'] = self.compsurfnorm[tag](depth * self.STEREO_SCALE_FACTOR)
 
             # for i, frame_id in enumerate(self.opt.frame_ids[1:]):
             #     if frame_id == "s":
@@ -474,6 +475,8 @@ class Trainer:
             target = inputs[("color", 0, source_scale)]
             # height = target.shape[2]
             # width = target.shape[3]
+            if self.opt.selfocclu:
+                sourceSSIMMask = self.selfOccluMask(outputs[('disp', source_scale)])
             for scale in self.opt.scales:
                 loss = 0
                 reprojection_losses = []
@@ -569,6 +572,14 @@ class Trainer:
                 else:
                     to_optimise, idxs = torch.min(combined, dim=1)
 
+                if self.opt.selfocclu:
+                    to_optimise = (1 - sourceSSIMMask.squeeze(1)) * to_optimise
+                    scaleSSIMMask = self.selfOccluMask(outputs[('disp', scale)])
+                    dispupMap = self.dispupLoss(outputs[('disp', scale)])
+                    dispupLoss = torch.mean(scaleSSIMMask * dispupMap)
+                    loss += dispupLoss
+                    # maskfig, dispfig = self.selfOccluMask.visualize(outputs[('disp', scale)])
+
                 # if it's cityscape dataset, need to mask out ego vehicle
                 if ('mask', 0) in inputs:
                     if 'gtMask' in outputs:
@@ -580,9 +591,13 @@ class Trainer:
                     to_optimise = to_optimise
                 loss += to_optimise.mean()
 
+
                 if self.opt.disparity_smoothness > 1e-10:
                     # Only add smoothness loss if required
-                    mult_disp = outputs[('mul_disp', scale)][:,0:-1:,:]
+                    if outputs[('mul_disp', scale)].shape[1] > 1:
+                        mult_disp = outputs[('mul_disp', scale)][:,0:-1:,:]
+                    else:
+                        mult_disp = outputs[('mul_disp', scale)]
                     mean_disp = mult_disp.mean(2, True).mean(3, True)
                     norm_disp = mult_disp / (mean_disp + 1e-7)
                     smooth_loss = get_smooth_loss(norm_disp, color)
@@ -799,14 +814,13 @@ class Trainer:
         else:
             print("Cannot find Adam weights so Adam is randomly initialized")
 
-    def multi_stage_training(self, setting_file_path = None):
-        schedule = list()
-        if setting_file_path is None:
-            # set nothing
-            schedule.append(np.array([1,1,self.opt.num_epochs])) # ratio is 1 by 1
-        else:
-            f = open(setting_file_path, 'r')
-            x = f.readlines()
-            f.close()
-            schedule = schedule + x
-        return schedule
+    # def multi_stage_training(self, setting_file_path = None):
+    #     schedule = list()
+    #     if setting_file_path is None:
+    #         schedule.append(np.array([1,1,self.opt.num_epochs])) # ratio is 1 by 1
+    #     else:
+    #         f = open(setting_file_path, 'r')
+    #         x = f.readlines()
+    #         f.close()
+    #         schedule = schedule + x
+    #     return schedule

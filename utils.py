@@ -309,7 +309,7 @@ def angle2matrix(pitch, roll, yaw):
     ]
     return np.array(ex)
 
-def get_gaussian_kernel(kernel_size=3, sigma=2, channels=3):
+def get_gaussian_kernel_weights(kernel_size=3, sigma=2):
     # Create a x, y coordinate grid of shape (kernel_size, kernel_size, 2)
     x_coord = torch.arange(kernel_size)
     x_grid = x_coord.repeat(kernel_size).view(kernel_size, kernel_size)
@@ -333,12 +333,12 @@ def get_gaussian_kernel(kernel_size=3, sigma=2, channels=3):
 
     # Reshape to 2d depthwise convolutional weight
     gaussian_kernel = gaussian_kernel.view(1, 1, kernel_size, kernel_size)
-    gaussian_kernel = gaussian_kernel.repeat(channels, 1, 1, 1)
+    # gaussian_kernel = gaussian_kernel.repeat(channels, 1, 1, 1)
+    #
+    # gaussian_filter = torch.nn.Conv2d(in_channels=channels, out_channels=channels,
+    #                             kernel_size=kernel_size, groups=channels, bias=False, padding = padding)
+    #
+    # gaussian_filter.weight.data = gaussian_kernel
+    # gaussian_filter.weight.requires_grad = False
 
-    gaussian_filter = torch.nn.Conv2d(in_channels=channels, out_channels=channels,
-                                kernel_size=kernel_size, groups=channels, bias=False)
-
-    gaussian_filter.weight.data = gaussian_kernel
-    gaussian_filter.weight.requires_grad = False
-
-    return gaussian_filter
+    return gaussian_kernel

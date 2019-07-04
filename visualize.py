@@ -158,13 +158,13 @@ class Comp1dgrad(nn.Module):
         self.act = nn.Sigmoid()
         self.gradth = 0.1
         self.init_gradconv()
-        self.init_gaussconv(kernel_size=3, sigma=2, channels=1)
+        # self.init_gaussconv(kernel_size=3, sigma=2, channels=1)
 
 
 
-    def init_gaussconv(self, kernel_size=3, sigma=2, channels=1):
-        self.gaussconv = get_gaussian_kernel(kernel_size=kernel_size, sigma=sigma, channels=channels)
-        self.gaussconv.cuda()
+    # def init_gaussconv(self, kernel_size=3, sigma=2, channels=1):
+    #     self.gaussconv = get_gaussian_kernel(kernel_size=kernel_size, sigma=sigma, channels=channels)
+    #     self.gaussconv.cuda()
     def init_gradconv(self):
         weightsx = torch.Tensor([[-1., 0., 1.],
                                 [-2., 0., 2.],
@@ -183,7 +183,8 @@ class Comp1dgrad(nn.Module):
         self.convy.cuda()
         # self.gaussKernel =
     def forward(self, tensor, boot = 1):
-        tensor_blurred = self.gaussconv(tensor)
+        # tensor_blurred = self.gaussconv(tensor)
+        tensor_blurred = tensor
         grad_x = torch.abs(self.convx(tensor_blurred))
         grad_y = torch.abs(self.convy(tensor_blurred))
         # grad = (grad_x + grad_y - 0.012) / tensor_blurred[:,:,1:-1,1:-1] * 200 - 6
@@ -214,20 +215,20 @@ def evaluate(opt):
 
     print("-> Loading weights from {}".format(opt.load_weights_folder))
 
-    filenames = readlines(os.path.join(splits_dir, opt.split, "val_files.txt"))
+    filenames = readlines(os.path.join(splits_dir, opt.split, "train_files.txt"))
     encoder_path = os.path.join(opt.load_weights_folder, "encoder.pth")
     decoder_path = os.path.join(opt.load_weights_folder, "depth.pth")
 
     encoder_dict = torch.load(encoder_path)
 
+    if opt.use_stereo:
+        opt.frame_ids.append("s")
     if opt.dataset == 'cityscape':
         dataset = datasets.CITYSCAPERawDataset(opt.data_path, filenames,
-                                           encoder_dict['height'], encoder_dict['width'],
-                                           [0], 4, is_train=False, tag=opt.dataset, load_meta=True)
+                                           encoder_dict['height'], encoder_dict['width'], opt.frame_ids, 4, is_train=False, tag=opt.dataset, load_meta=True)
     elif opt.dataset == 'kitti':
         dataset = datasets.KITTIRAWDataset(opt.data_path, filenames,
-                                           encoder_dict['height'], encoder_dict['width'],
-                                           [0], 4, is_train=False, tag=opt.dataset)
+                                           encoder_dict['height'], encoder_dict['width'], opt.frame_ids, 4, is_train=False, tag=opt.dataset)
     else:
         raise ValueError("No predefined dataset")
     dataloader = DataLoader(dataset, batch_size=opt.batch_size, shuffle=False, num_workers=opt.num_workers,
@@ -261,9 +262,13 @@ def evaluate(opt):
     isHist = False
     useGtSeman = True
     viewSurfaceNormal = True
+    viewSelfOcclu = True
+    viewDispUp = True
+    viewSmooth = True
     height = 256
     width = 512
     tensor23dPts = Tensor23dPts()
+
     if isHist:
         rec = np.zeros((19,100))
 
@@ -276,24 +281,39 @@ def evaluate(opt):
     if not os.path.exists(dirpath):
         os.makedirs(dirpath)
 
+    if viewSmooth:
+        comSmooth = ComputeSmoothLoss().cuda()
+
     if viewEdgeMerge:
-        comp1dgrad = Comp1dgrad()
+        comp1dgrad = Comp1dgrad().cuda()
 
     if viewSurfaceNormal:
-        compsn = ComputeSurfaceNormal(height = height, width = width, batch_size = opt.batch_size, typenum=20)
+        compsn = ComputeSurfaceNormal(height = height, width = width, batch_size = opt.batch_size).cuda()
+
+    if viewSelfOcclu:
+        selfclu = SelfOccluMask().cuda()
+
+    if viewDispUp:
+        compDispUp = ComputeDispUpLoss().cuda()
+
     with torch.no_grad():
         for idx, inputs in enumerate(dataloader):
+            for key, ipt in inputs.items():
+                if not(key == 'height' or key == 'width' or key == 'tag' or key == 'cts_meta'):
+                    inputs[key] = ipt.to(torch.device("cuda"))
             input_color = inputs[("color", 0, 0)].cuda()
             features = encoder(input_color)
             outputs = dict()
             outputs.update(depth_decoder(features, computeSemantic=True, computeDepth=False))
             outputs.update(depth_decoder(features, computeSemantic=False, computeDepth=True))
+
             if isHist:
                 mulDisp = outputs[('mul_disp', 0)]
                 scaled_disp, mulDepth = disp_to_depth(mulDisp, 0.1, 100)
                 mulDepth = mulDepth.cpu()
                 for i in range(mulDisp.shape[1]):
                     rec[i,:] += torch.histc(mulDepth[:,i,:,:],bins=100,min=0,max=100).numpy()
+
             if isvisualize:
                 if useGtSeman:
                     # outputs[('mul_disp', 0)][:,2,:,:] = outputs[('mul_disp', 0)][:,2,:,:] * 0
@@ -305,8 +325,14 @@ def evaluate(opt):
                 dispMap = outputs[('disp', 0)]
                 scaled_disp, depthMap = disp_to_depth(dispMap, 0.1, 100)
                 depthMap = depthMap * STEREO_SCALE_FACTOR
-                _, mul_depthMap = disp_to_depth(outputs[('mul_disp', 0)], 0.1, 100)
-                mul_depthMap = mul_depthMap * STEREO_SCALE_FACTOR
+                # _, mul_depthMap = disp_to_depth(outputs[('mul_disp', 0)], 0.1, 100)
+                # mul_depthMap = mul_depthMap * STEREO_SCALE_FACTOR
+                if viewDispUp:
+                    fig_dispup = compDispUp.visualize(scaled_disp, viewindex=index)
+
+                if viewSmooth:
+                    rgb = inputs[('color_aug', 0, 0)]
+                    smoothfig = comSmooth.visualize(rgb=rgb, disp=scaled_disp, viewindex=index)
 
                 if useGtSeman:
                     fig_seman = tensor2semantic(inputs['seman_gt'], ind=index, isGt=True)
@@ -322,35 +348,58 @@ def evaluate(opt):
 
                 if viewSurfaceNormal:
                     # surnorm = compsn.visualize(depthMap = depthMap, invcamK = inputs['invcamK'].cuda(), orgEstPts = veh_coord, gtEstPts = veh_coord_gt, viewindex = index)
-                    surnorm = compsn.visualize(depthMap=mul_depthMap, invcamK=inputs['invcamK'].cuda(), orgEstPts=veh_coord,
+                    surnorm = compsn.visualize(depthMap=depthMap, invcamK=inputs['invcamK'].cuda(), orgEstPts=veh_coord,
                                                gtEstPts=veh_coord_gt, viewindex=index)
 
                 if viewEdgeMerge:
                     grad_disp = comp1dgrad(outputs[('mul_disp', 0)])
                     fig_grad = tensor2disp(grad_disp, ind = index, vmax=1)
                     fig_grad = fig_grad.resize([512, 256])
+
+                if viewSelfOcclu:
+                    fl = inputs[("K", 0)][:, 0, 0]
+                    bs = torch.abs(inputs["stereo_T"][:, 0, 3])
+                    clufig, suppressedDisp = selfclu.visualize(dispMap, viewind=index)
+
+
                 if fig_grad is not None:
                     grad_seman = (np.array(fig_grad)[:, :, 0:3].astype(np.float) * 0.7 + np.array(fig_seman).astype(np.float) * 0.3).astype(np.uint8)
                     # combined = [np.array(fig_disp)[:, :, 0:3], np.array(fig_grad)[:, :, 0:3], np.array(fig_seman), np.array(fig_rgb)]
                     combined = [grad_seman, np.array(fig_disp)[:, :, 0:3], np.array(fig_rgb)]
+                    combined = np.concatenate(combined, axis=1)
                 else:
-                    if viewSurfaceNormal:
+                    if viewSurfaceNormal and viewSelfOcclu:
                         surnorm = surnorm.resize([512, 256])
-                        surnorm_mixed = pil.fromarray((np.array(surnorm) * 0.2 + np.array(fig_disp)[:, :, 0:3] * 0.8).astype(np.uint8))
-                        disp_seman = (np.array(fig_disp)[:, :, 0:3].astype(np.float) * 0.8 + np.array(fig_seman).astype(np.float) * 0.2).astype(np.uint8)
-                        rgb_seman = (np.array(fig_seman).astype(np.float) * 0.5 + np.array(fig_rgb).astype(np.float) * 0.5).astype(np.uint8)
-                        combined = [np.array(disp_seman)[:, :, 0:3], np.array(fig_disp)[:, :, 0:3], np.array(surnorm_mixed), np.array(surnorm), np.array(fig_seman),
-                                    np.array(rgb_seman)]
+                        surnorm_mixed = pil.fromarray(
+                            (np.array(surnorm) * 0.2 + np.array(fig_disp)[:, :, 0:3] * 0.8).astype(np.uint8))
+                        disp_seman = (np.array(suppressedDisp)[:, :, 0:3].astype(np.float) * 0.8 + np.array(fig_seman).astype(
+                            np.float) * 0.2).astype(np.uint8)
+                        rgb_seman = (np.array(fig_seman).astype(np.float) * 0.5 + np.array(fig_rgb).astype(
+                            np.float) * 0.5).astype(np.uint8)
+
+                        # clud_disp = (np.array(clufig)[:, :, 0:3].astype(np.float) * 0.3 + np.array(fig_disp)[:, :, 0:3].astype(
+                        #     np.float) * 0.7).astype(np.uint8)
+                        comb1 = np.concatenate([np.array(clufig)[:, :, 0:3], np.array(suppressedDisp)[:, :, 0:3]], axis=1)
+                        comb2 = np.concatenate([np.array(disp_seman)[:, :, 0:3], np.array(fig_disp)[:, :, 0:3]], axis=1)
+                        comb3 = np.concatenate([np.array(surnorm_mixed)[:, :, 0:3], np.array(surnorm)[:, :, 0:3]], axis=1)
+                        comb4 = np.concatenate([np.array(fig_seman)[:, :, 0:3], np.array(rgb_seman)[:, :, 0:3]],
+                                               axis=1)
+                        comb6 = np.concatenate([np.array(clufig)[:, :, 0:3], np.array(fig_dispup)[:, :, 0:3]], axis=1)
+
+                        fig3dsize = np.ceil(np.array([comb4.shape[1] , comb4.shape[1] / fig_3d.size[0] * fig_3d.size[1]])).astype(np.int)
+                        comb5 = np.array(fig_3d.resize(fig3dsize))
+                        combined = np.concatenate([comb1, comb6, comb2, comb3, comb4, comb5], axis=0)
                     else:
                         disp_seman = (np.array(fig_disp)[:, :, 0:3].astype(np.float) * 0.8 + np.array(fig_seman).astype(np.float) * 0.2).astype(np.uint8)
                         rgb_seman = (np.array(fig_seman).astype(np.float) * 0.5 + np.array(fig_rgb).astype(np.float) * 0.5).astype(np.uint8)
                         # combined = [np.array(disp_seman)[:,:,0:3], np.array(fig_disp)[:, :, 0:3], np.array(fig_seman), np.array(fig_rgb)]
                         combined = [np.array(disp_seman)[:, :, 0:3], np.array(fig_disp)[:, :, 0:3], np.array(fig_seman),
                                     np.array(rgb_seman)]
-                combined = np.concatenate(combined, axis=1)
+                        combined = np.concatenate(combined, axis=1)
+
                 fig = pil.fromarray(combined)
                 fig.save(os.path.join(dirpath, str(idx) + '.png'))
-                fig_3d.save(os.path.join(dirpath, str(idx) + '_fig3d.png'))
+                # fig_3d.save(os.path.join(dirpath, str(idx) + '_fig3d.png'))
                 # for k in range(10):
                 #     fig_disp = tensor2disp(outputs[('disp', 0)], ind=k)
                 #     fig_rgb = tensor2rgb(inputs[('color', 0, 0)], ind=k)

@@ -397,14 +397,13 @@ class ComputeSurfaceNormal(nn.Module):
         self.height = height
         self.width = width
         self.batch_size = batch_size
-        self.surnormType = ['road', 'sidewalk', 'building', 'wall', 'fence', 'pole', 'traffic sign', 'terrain']
-        # self.typenum = typenum
+        # self.surnormType = ['road', 'sidewalk', 'building', 'wall', 'fence', 'pole', 'traffic sign', 'terrain']
         xx, yy = np.meshgrid(np.arange(self.width), np.arange(self.height))
         xx = xx.flatten().astype(np.float32)
         yy = yy.flatten().astype(np.float32)
-        self.pix_coords = np.expand_dims(np.stack([xx, yy, np.ones(self.width * self.height).astype(np.float32)], axis=1), axis=0).repeat(self.batch_size * self.typenum, axis=0)
+        self.pix_coords = np.expand_dims(np.stack([xx, yy, np.ones(self.width * self.height).astype(np.float32)], axis=1), axis=0).repeat(self.batch_size, axis=0)
         self.pix_coords = torch.from_numpy(self.pix_coords).permute(0,2,1)
-        self.ones = torch.ones(self.batch_size * self.typenum, 1, self.height * self.width)
+        self.ones = torch.ones(self.batch_size, 1, self.height * self.width)
         self.pix_coords = self.pix_coords.cuda()
         self.ones = self.ones.cuda()
         self.init_gradconv()
@@ -444,11 +443,11 @@ class ComputeSurfaceNormal(nn.Module):
 
     def visualize(self, depthMap, invcamK, orgEstPts = None, gtEstPts = None, viewindex = 0):
         # First compute 3d points in vehicle coordinate system
-        depthMap = depthMap.view(self.batch_size * self.typenum, -1)
+        depthMap = depthMap.view(self.batch_size, -1)
         cam_coords = self.pix_coords * torch.stack([depthMap, depthMap, depthMap], dim=1)
         cam_coords = torch.cat([cam_coords, self.ones], dim=1)
-        veh_coords = torch.matmul(invcamK.repeat(self.typenum, 1, 1), cam_coords)
-        veh_coords = veh_coords.view(self.batch_size * self.typenum, 4, self.height, self.width)
+        veh_coords = torch.matmul(invcamK, cam_coords)
+        veh_coords = veh_coords.view(self.batch_size, 4, self.height, self.width)
         veh_coords = veh_coords
         changex = torch.cat([self.convx(veh_coords[:, 0:1, :, :]), self.convx(veh_coords[:, 1:2, :, :]), self.convx(veh_coords[:, 2:3, :, :])], dim=1)
         changey = torch.cat([self.convy(veh_coords[:, 0:1, :, :]), self.convy(veh_coords[:, 1:2, :, :]), self.convy(veh_coords[:, 2:3, :, :])], dim=1)
@@ -533,3 +532,209 @@ class ObjRegularization(nn.Module):
 
     def regularize(self, tensor):
         a = 1
+
+
+class SelfOccluMask(nn.Module):
+    def __init__(self, maxDisp = 21):
+        super(SelfOccluMask, self).__init__()
+        self.maxDisp = maxDisp
+        self.pad = self.maxDisp
+        self.init_kernel()
+        self.boostfac = 400
+    def init_kernel(self):
+        # maxDisp is the largest disparity considered
+        # added with being compated pixels
+        self.conv = torch.nn.Conv2d(in_channels=1, out_channels=self.maxDisp, kernel_size=(3,self.maxDisp + 2), stride=1, padding=self.pad, bias=True)
+        self.conv.bias = nn.Parameter(torch.arange(self.maxDisp).type(torch.FloatTensor), requires_grad=True)
+        convweights = torch.zeros(self.maxDisp, 1, 3, self.maxDisp + 2)
+        for i in range(0, self.maxDisp):
+            convweights[i, 0, :, 0:2] = 1/6
+            convweights[i, 0, :, i+2:i+3] = -1/3
+        self.conv.weight = nn.Parameter(convweights, requires_grad=True)
+        self.weightck = (torch.sum(torch.abs(self.conv.weight)) + torch.sum(torch.abs(self.conv.bias)))
+        # self.gausconv = get_gaussian_kernel(channels = 1, padding = 1)
+        # self.gausconv.cuda()
+    def forward(self, dispmap):
+        # dispmap = self.gausconv(dispmap)
+
+        assert torch.abs(self.weightck - (torch.sum(torch.abs(self.conv.weight)) + torch.sum(torch.abs(self.conv.bias)))) < 1e-2, "weights changed"
+        width = dispmap.shape[3]
+        output = self.conv(dispmap)
+        output = torch.min(output, dim=1, keepdim=True)[0]
+        output = output[:,:,self.pad-1:-(self.pad-1):,-width:]
+        mask = torch.tanh(-output * self.boostfac)
+        mask = torch.clamp(mask, min=0)
+        return mask
+    def visualize(self, dispmap, viewind = 0):
+        cm = plt.get_cmap('magma')
+
+        # pad = int(self.maxDisp + 2 -1) / 2
+        # dispmap = self.gausconv(dispmap)
+        height = dispmap.shape[2]
+        width = dispmap.shape[3]
+        # dispmap = dispmap * fc.unsqueeze(1).unsqueeze(1).unsqueeze(1).repeat(1,1,height,width) * bs.unsqueeze(1).unsqueeze(1).unsqueeze(1).repeat(1,1,height,width)
+        output = self.conv(dispmap)
+        output = torch.min(output, dim=1, keepdim=True)[0]
+        output = output[:,:,self.pad-1:-(self.pad-1):,-width:]
+        # output = output[:,:,pad:-pad, pad:-pad]
+        mask = torch.tanh(-output * self.boostfac)
+        mask = torch.clamp(mask, min=0)
+        # mask = mask.masked_fill(mask < 0.3, 0)
+        # mask[mask < 0] = 0
+
+        binmask = mask > 0.95
+        viewbin = binmask[viewind, 0, :, :].detach().cpu().numpy()
+        # pil.fromarray((viewbin * 255).astype(np.uint8)).show()
+
+        viewmask = mask[viewind, 0, :, :].detach().cpu().numpy()
+        viewmask = (cm(viewmask)* 255).astype(np.uint8)
+        # pil.fromarray(viewmask).show()
+
+        dispmap = dispmap * (1 - mask)
+        viewdisp = dispmap[viewind, 0, :, :].detach().cpu().numpy()
+        vmax = np.percentile(viewdisp, 90)
+        viewdisp = (cm(viewdisp / vmax)* 255).astype(np.uint8)
+        # pil.fromarray(viewdisp).show()
+        return pil.fromarray(viewmask), pil.fromarray(viewdisp)
+
+
+class ComputeDispUpLoss(nn.Module):
+    def __init__(self):
+        super(ComputeDispUpLoss, self).__init__()
+        self.init_kernel()
+    def init_kernel(self):
+        # noinspection PyArgumentList
+        weights = torch.Tensor([
+                                [-1., 0., 1.],
+                                [-2., 0., 2.],
+                                [-1., 0., 1.]]).unsqueeze(0).unsqueeze(0)
+        self.conv = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+        self.conv.weight = nn.Parameter(weights,requires_grad=False)
+        # self.conv.cuda()
+    def visualize(self, dispImage, viewindex = 0):
+        cm = plt.get_cmap('magma')
+
+        xdispgrad = self.conv(dispImage)
+        xdispgrad = torch.clamp(xdispgrad, min=0)
+        # xdispgrad[xdispgrad < 0] = 0
+
+        viewmask = xdispgrad[viewindex, 0, :, :].detach().cpu().numpy()
+        vmax = np.percentile(viewmask, 98)
+        viewmask = (cm(viewmask / vmax)* 255).astype(np.uint8)
+        # pil.fromarray(viewmask).show()
+
+        viewdisp = dispImage[viewindex, 0, :, :].detach().cpu().numpy()
+        vmax = np.percentile(viewdisp, 90)
+        viewdisp = (cm(viewdisp / vmax)* 255).astype(np.uint8)
+        # pil.fromarray(viewdisp).show()
+        return pil.fromarray(viewmask)
+
+    def forward(self, dispImage):
+        xdispgrad = self.conv(dispImage)
+        xdispgrad = torch.clamp(xdispgrad, min=0)
+        # graduploss = torch.mean(xdispgrad)
+        return xdispgrad
+
+class ComputeSmoothLoss(nn.Module):
+    def __init__(self):
+        super(ComputeSmoothLoss, self).__init__()
+        self.init_kernel()
+    def init_kernel(self):
+        weightsx = torch.Tensor([
+                                [-1., 0., 1.],
+                                [-2., 0., 2.],
+                                [-1., 0., 1.]]).unsqueeze(0).unsqueeze(0)
+
+        weightsy = torch.Tensor([
+                                [ 1.,  2.,  1.],
+                                [ 0.,  0.,  0.],
+                                [-1., -2., -1.]]).unsqueeze(0).unsqueeze(0)
+
+        self.convDispx = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+        self.convDispy = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+        self.convRgbx = nn.Conv2d(in_channels=3, out_channels=3, kernel_size=3, padding=1, bias=False, groups=3)
+        self.convRgby = nn.Conv2d(in_channels=3, out_channels=3, kernel_size=3, padding=1, bias=False, groups=3)
+
+        self.convDispx.weight = nn.Parameter(weightsx,requires_grad=False)
+        self.convDispy.weight = nn.Parameter(weightsy,requires_grad=False)
+        self.convRgbx.weight = nn.Parameter(weightsx.repeat(3,1,1,1), requires_grad=False)
+        self.convRgby.weight = nn.Parameter(weightsy.repeat(3,1,1,1), requires_grad=False)
+
+        gaussWeights = get_gaussian_kernel_weights()
+        self.gaussConv = nn.Conv2d(in_channels=3, out_channels=3, kernel_size=3, padding=1, bias=False, groups=3)
+        self.gaussConv.weight = nn.Parameter(gaussWeights.repeat(3,1,1,1), requires_grad=False)
+
+        self.convDispx.cuda()
+        self.convDispy.cuda()
+        self.convRgbx.cuda()
+        self.convRgby.cuda()
+        self.gaussConv.cuda()
+    def visualize(self, rgb, disp, viewindex = 0):
+        rgb = self.gaussConv(rgb)
+
+        rgbx = self.convRgbx(rgb)
+        rgbx = torch.mean(torch.abs(rgbx), dim=1, keepdim=True)
+        rgby = self.convRgby(rgb)
+        rgby = torch.mean(torch.abs(rgby), dim=1, keepdim=True)
+
+        dispx = torch.abs(self.convDispx(disp))
+        dispy = torch.abs(self.convDispy(disp))
+
+        dispgrad_before = dispx + dispy
+
+        dispx *= torch.exp(-rgbx)
+        dispy *= torch.exp(-rgby)
+
+        dispgrad_after = dispx + dispy
+
+        viewRgb = rgb[viewindex, :, :, :].permute(1,2,0).cpu().numpy()
+        viewRgb = (viewRgb * 255).astype(np.uint8)
+        # pil.fromarray(viewRgb).show()
+
+        rgbGrad = rgbx + rgby
+        viewRgbGrad = rgbGrad[viewindex, 0, :, :].cpu().numpy()
+        vmax = np.percentile(viewRgbGrad, 98)
+        viewRgbGrad[viewRgbGrad > vmax] = vmax
+        viewRgbGrad = viewRgbGrad / vmax
+        viewRgbGrad = (viewRgbGrad * 255).astype(np.uint8)
+        # pil.fromarray(viewRgbGrad).show()
+        # viewRgbGrad = (cm(viewRgbGrad / vmax)* 255).astype(np.uint8)
+
+
+        viewDispBefore = dispgrad_before[viewindex, 0, :, :].cpu().numpy()
+        vmax = np.percentile(viewDispBefore, 95)
+        viewDispBefore[viewDispBefore > vmax] = vmax
+        viewDispBefore = viewDispBefore / vmax
+        viewDispBefore = (viewDispBefore * 255).astype(np.uint8)
+        # pil.fromarray(viewDispBefore).show()
+
+        viewDispAfter = dispgrad_after[viewindex, 0, :, :].cpu().numpy()
+        vmax = np.percentile(viewDispAfter, 95)
+        viewDispAfter[viewDispAfter > vmax] = vmax
+        viewDispAfter = viewDispAfter / vmax
+        viewDispAfter = (viewDispAfter * 255).astype(np.uint8)
+        # pil.fromarray(viewDispAfter).show()
+
+
+        grad_disp_x = torch.abs(disp[:, :, :, :-1] - disp[:, :, :, 1:])
+        grad_disp_y = torch.abs(disp[:, :, :-1, :] - disp[:, :, 1:, :])
+
+        grad_img_x = torch.mean(torch.abs(rgb[:, :, :, :-1] - rgb[:, :, :, 1:]), 1, keepdim=True)
+        grad_img_y = torch.mean(torch.abs(rgb[:, :, :-1, :] - rgb[:, :, 1:, :]), 1, keepdim=True)
+
+        grad_disp_x *= torch.exp(-grad_img_x)
+        grad_disp_y *= torch.exp(-grad_img_y)
+        grad_goard = grad_disp_x[:,:,:-1,:] + grad_disp_y[:,:,:,:-1]
+        view_gradgoard = grad_goard[viewindex, 0, :, :].cpu().numpy()
+        vmax = np.percentile(view_gradgoard, 95)
+        view_gradgoard[view_gradgoard > vmax] = vmax
+        view_gradgoard = view_gradgoard / vmax
+        view_gradgoard = (view_gradgoard * 255).astype(np.uint8)
+        view_gradgoard = pil.fromarray(view_gradgoard).resize((viewDispAfter.shape[1], viewDispAfter.shape[0]))
+        view_gradgoard = np.array(view_gradgoard)
+        # pil.fromarray(view_gradgoard).show()
+
+        combined = np.concatenate([viewRgb, np.repeat(np.expand_dims(viewRgbGrad, axis=2), 3, axis=2), np.repeat(np.expand_dims(viewDispBefore, axis=2), 3, axis=2), np.repeat(np.expand_dims(viewDispAfter, axis=2), 3, axis=2), np.repeat(np.expand_dims(view_gradgoard, axis=2), 3, axis=2)])
+        # pil.fromarray(combined).show()
+        return pil.fromarray(combined)
+
