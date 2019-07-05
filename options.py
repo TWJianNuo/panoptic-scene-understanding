@@ -148,6 +148,10 @@ class MonodepthOptions:
         self.parser.add_argument("--selfocclu",
                                  help="if set, use self occlusion in training",
                                  action="store_true")
+        self.parser.add_argument("--selfoccluscale",
+                                 help="adjust self occlu loss scale",
+                                 type=float,
+                                 default=1e0)
         self.parser.add_argument("--toyTrial",
                                  help="if set, experiment on toy problem",
                                  action="store_true")

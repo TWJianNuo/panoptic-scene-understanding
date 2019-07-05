@@ -45,8 +45,8 @@ def tensor2disp(tensor, ind, vmax = None):
     slice = tensor[ind, 0, :, :].cpu().numpy()
     if vmax is None:
         vmax = np.percentile(slice, 90)
-    # slice = slice / vmax
-    slice = slice / slice.max()
+    slice = slice / vmax
+    # slice = slice / slice.max()
     cm = plt.get_cmap('magma')
     slice = (cm(slice) * 255).astype(np.uint8)
     # pil.fromarray(slice).show()
@@ -373,14 +373,16 @@ def evaluate(opt):
                         surnorm = surnorm.resize([512, 256])
                         surnorm_mixed = pil.fromarray(
                             (np.array(surnorm) * 0.2 + np.array(fig_disp)[:, :, 0:3] * 0.8).astype(np.uint8))
-                        disp_seman = (np.array(suppressedDisp)[:, :, 0:3].astype(np.float) * 0.8 + np.array(fig_seman).astype(
+                        disp_seman = (np.array(fig_disp)[:, :, 0:3].astype(np.float) * 0.8 + np.array(fig_seman).astype(
+                            np.float) * 0.2).astype(np.uint8)
+                        supprressed_disp_seman = (np.array(suppressedDisp)[:, :, 0:3].astype(np.float) * 0.8 + np.array(fig_seman).astype(
                             np.float) * 0.2).astype(np.uint8)
                         rgb_seman = (np.array(fig_seman).astype(np.float) * 0.5 + np.array(fig_rgb).astype(
                             np.float) * 0.5).astype(np.uint8)
 
                         # clud_disp = (np.array(clufig)[:, :, 0:3].astype(np.float) * 0.3 + np.array(fig_disp)[:, :, 0:3].astype(
                         #     np.float) * 0.7).astype(np.uint8)
-                        comb1 = np.concatenate([np.array(clufig)[:, :, 0:3], np.array(suppressedDisp)[:, :, 0:3]], axis=1)
+                        comb1 = np.concatenate([np.array(supprressed_disp_seman)[:, :, 0:3], np.array(suppressedDisp)[:, :, 0:3]], axis=1)
                         comb2 = np.concatenate([np.array(disp_seman)[:, :, 0:3], np.array(fig_disp)[:, :, 0:3]], axis=1)
                         comb3 = np.concatenate([np.array(surnorm_mixed)[:, :, 0:3], np.array(surnorm)[:, :, 0:3]], axis=1)
                         comb4 = np.concatenate([np.array(fig_seman)[:, :, 0:3], np.array(rgb_seman)[:, :, 0:3]],
@@ -389,7 +391,8 @@ def evaluate(opt):
 
                         fig3dsize = np.ceil(np.array([comb4.shape[1] , comb4.shape[1] / fig_3d.size[0] * fig_3d.size[1]])).astype(np.int)
                         comb5 = np.array(fig_3d.resize(fig3dsize))
-                        combined = np.concatenate([comb1, comb6, comb2, comb3, comb4, comb5], axis=0)
+                        # combined = np.concatenate([comb1, comb6, comb2, comb3, comb4, comb5], axis=0)
+                        combined = np.concatenate([comb1, comb2, comb4, comb3], axis=0)
                     else:
                         disp_seman = (np.array(fig_disp)[:, :, 0:3].astype(np.float) * 0.8 + np.array(fig_seman).astype(np.float) * 0.2).astype(np.uint8)
                         rgb_seman = (np.array(fig_seman).astype(np.float) * 0.5 + np.array(fig_rgb).astype(np.float) * 0.5).astype(np.uint8)
