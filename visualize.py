@@ -266,6 +266,7 @@ def evaluate(opt):
     viewSelfOcclu = True
     viewDispUp = True
     viewSmooth = True
+    viewMulReg = True
     height = 256
     width = 512
     tensor23dPts = Tensor23dPts()
@@ -297,13 +298,16 @@ def evaluate(opt):
     if viewDispUp:
         compDispUp = ComputeDispUpLoss().cuda()
 
+    if viewMulReg:
+        objReg = ObjRegularization()
+
     with torch.no_grad():
         for idx, inputs in enumerate(dataloader):
             for key, ipt in inputs.items():
                 if not(key == 'height' or key == 'width' or key == 'tag' or key == 'cts_meta'):
                     inputs[key] = ipt.to(torch.device("cuda"))
             input_color = inputs[("color", 0, 0)].cuda()
-            input_color = torch.flip(input_color, dims=[3])
+            # input_color = torch.flip(input_color, dims=[3])
             features = encoder(input_color)
             outputs = dict()
             outputs.update(depth_decoder(features, computeSemantic=True, computeDepth=False))
@@ -329,6 +333,7 @@ def evaluate(opt):
                 depthMap = depthMap * STEREO_SCALE_FACTOR
                 # _, mul_depthMap = disp_to_depth(outputs[('mul_disp', 0)], 0.1, 100)
                 # mul_depthMap = mul_depthMap * STEREO_SCALE_FACTOR
+
                 if viewDispUp:
                     fig_dispup = compDispUp.visualize(scaled_disp, viewindex=index)
 
@@ -352,6 +357,34 @@ def evaluate(opt):
                     # surnorm = compsn.visualize(depthMap = depthMap, invcamK = inputs['invcamK'].cuda(), orgEstPts = veh_coord, gtEstPts = veh_coord_gt, viewindex = index)
                     surnorm = compsn.visualize(depthMap=depthMap, invcamK=inputs['invcamK'].cuda(), orgEstPts=veh_coord,
                                                gtEstPts=veh_coord_gt, viewindex=index)
+                    surnormMap = compsn(depthMap=depthMap, invcamK=inputs['invcamK'].cuda())
+
+                if viewMulReg:
+                    depthMapLoc = depthMap / STEREO_SCALE_FACTOR
+                    skyId = 10
+                    skyMask = inputs['seman_gt'] == skyId
+                    skyerr = objReg.visualize_regularizeSky(depthMapLoc, skyMask, viewInd=index)
+
+
+                    wallType = [2, 3, 4] # Building, wall, fence
+                    roadType = [0, 1, 9] # road, sidewalk, terrain
+
+                    wallMask = torch.ones_like(skyMask)
+                    roadMask = torch.ones_like(skyMask)
+
+                    with torch.no_grad():
+                        for m in wallType:
+                            wallMask = wallMask * (inputs['seman_gt'] != m)
+                        wallMask = 1 - wallMask
+
+                        for m in roadType:
+                            roadMask = roadMask * (inputs['seman_gt'] != m)
+                        roadMask = 1 - roadMask
+
+                    objReg.visualize_regularizeBuildingRoad(surnormMap, wallMask, roadMask, dispMap, viewInd=index)
+
+
+
 
                 if viewEdgeMerge:
                     grad_disp = comp1dgrad(outputs[('mul_disp', 0)])
@@ -403,7 +436,7 @@ def evaluate(opt):
                         combined = np.concatenate(combined, axis=1)
 
                 fig = pil.fromarray(combined)
-                # fig.show()
+                fig.show()
                 fig.save(os.path.join(dirpath, str(idx) + '.png'))
                 # fig_3d.save(os.path.join(dirpath, str(idx) + '_fig3d.png'))
                 # for k in range(10):

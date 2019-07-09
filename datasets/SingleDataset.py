@@ -147,7 +147,12 @@ class SingleDataset(data.Dataset):
 
         do_color_aug = self.is_train and random.random() > 0.5
         do_flip = self.is_train and random.random() > 0.5
-        do_flip = True
+        # if self.is_train:
+        #     if do_flip:
+        #         print("do flip")
+        #     else:
+        #         print("not do flip")
+        # do_flip = True
         # do_color_aug =  False
         # do_flip = False
 
@@ -239,8 +244,6 @@ class SingleDataset(data.Dataset):
                     inputs[entry] = torch.flip(spec_mask[entry], dims=[1])
                 else:
                     inputs[entry] = spec_mask[entry]
-
-
 
         # additional info
         inputs["height"] = self.height # final image height

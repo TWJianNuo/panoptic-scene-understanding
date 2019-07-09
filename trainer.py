@@ -175,7 +175,7 @@ class Trainer:
 
             train_dataset = initFunc(
                 datapath_set[i], train_filenames, self.opt.height, self.opt.width,
-                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=self.opt.toyTrial, img_ext=img_ext)
+                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=True, img_ext=img_ext)
             train_sample_num[i] = train_dataset.__len__()
             stacked_train_datasets.append(train_dataset)
 
@@ -476,7 +476,7 @@ class Trainer:
             # height = target.shape[2]
             # width = target.shape[3]
             if self.opt.selfocclu:
-                sourceSSIMMask = self.selfOccluMask(outputs[('disp', source_scale)])
+                sourceSSIMMask = self.selfOccluMask(outputs[('disp', source_scale)], inputs['stereo_T'][:,0,3])
             for scale in self.opt.scales:
                 loss = 0
                 reprojection_losses = []
@@ -573,8 +573,8 @@ class Trainer:
                     to_optimise, idxs = torch.min(combined, dim=1)
 
                 if self.opt.selfocclu:
-                    # to_optimise = (1 - sourceSSIMMask.squeeze(1)) * to_optimise
-                    a, b = self.selfOccluMask.visualize(outputs[('disp', scale)])
+                    to_optimise = (1 - sourceSSIMMask.squeeze(1)) * to_optimise
+                    # a, b = self.selfOccluMask.visualize(outputs[('disp', scale)])
                     # scaleSSIMMask = self.selfOccluMask(outputs[('disp', scale)])
                     # dispupMap = self.dispupLoss(outputs[('disp', scale)])
                     # dispupLoss = torch.mean(scaleSSIMMask * dispupMap) * self.opt.selfoccluscale

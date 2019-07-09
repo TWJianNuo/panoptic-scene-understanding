@@ -27,7 +27,7 @@ class CITYSCAPEDataset(SingleDataset):
     """Superclass for different types of KITTI dataset loaders
     """
     def __init__(self, data_path, filenames, height, width, frame_idxs, num_scales, tag, is_train=False, img_ext='.png', load_depth = False, load_meta = False):
-        super(CITYSCAPEDataset, self).__init__(data_path, filenames, height, width, frame_idxs, num_scales, tag, is_train=False, img_ext='.png')
+        super(CITYSCAPEDataset, self).__init__(data_path, filenames, height, width, frame_idxs, num_scales, tag, is_train, img_ext='.png')
         # self.kitti_K = np.array([[0.58, 0, 0.5, 0],
         #                         [0, 1.92, 0.5, 0],
         #                         [0, 0, 1, 0],
