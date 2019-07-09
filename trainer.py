@@ -573,12 +573,13 @@ class Trainer:
                     to_optimise, idxs = torch.min(combined, dim=1)
 
                 if self.opt.selfocclu:
-                    to_optimise = (1 - sourceSSIMMask.squeeze(1)) * to_optimise
-                    scaleSSIMMask = self.selfOccluMask(outputs[('disp', scale)])
-                    dispupMap = self.dispupLoss(outputs[('disp', scale)])
-                    dispupLoss = torch.mean(scaleSSIMMask * dispupMap) * self.opt.selfoccluscale
-                    losses["loss_dispup/{}".format(scale)] = dispupLoss
-                    loss += dispupLoss
+                    # to_optimise = (1 - sourceSSIMMask.squeeze(1)) * to_optimise
+                    a, b = self.selfOccluMask.visualize(outputs[('disp', scale)])
+                    # scaleSSIMMask = self.selfOccluMask(outputs[('disp', scale)])
+                    # dispupMap = self.dispupLoss(outputs[('disp', scale)])
+                    # dispupLoss = torch.mean(scaleSSIMMask * dispupMap) * self.opt.selfoccluscale
+                    # losses["loss_dispup/{}".format(scale)] = dispupLoss
+                    # loss += dispupLoss
                     # maskfig, dispfig = self.selfOccluMask.visualize(outputs[('disp', scale)])
 
                 # if it's cityscape dataset, need to mask out ego vehicle

@@ -147,6 +147,7 @@ class SingleDataset(data.Dataset):
 
         do_color_aug = self.is_train and random.random() > 0.5
         do_flip = self.is_train and random.random() > 0.5
+        do_flip = True
         # do_color_aug =  False
         # do_flip = False
 
@@ -228,19 +229,29 @@ class SingleDataset(data.Dataset):
             inputs["stereo_T"] = torch.from_numpy(stereo_T)
 
         if self.mask is not None:
-            for entry in self.mask:
-                inputs[entry] = self.mask[entry]
+            if side == 'l':
+                spec_mask = self.mask['left']
+            else:
+                spec_mask = self.mask['right']
+
+            for entry in spec_mask:
+                if do_flip:
+                    inputs[entry] = torch.flip(spec_mask[entry], dims=[1])
+                else:
+                    inputs[entry] = spec_mask[entry]
+
+
 
         # additional info
-        inputs["height"] = self.height
-        inputs["width"] = self.width
-        inputs["tag"] = self.tag
+        inputs["height"] = self.height # final image height
+        inputs["width"] = self.width # final image width
+        inputs["tag"] = self.tag # final image tags
         camK, invcamK, realIn, realEx = self.get_camK(folder)
 
-        inputs["camK"] = camK
-        inputs["invcamK"] = invcamK
-        inputs["realIn"] = realIn
-        inputs["realEx"] = realEx
+        inputs["camK"] = camK # Intrinsic by extrinsic
+        inputs["invcamK"] = invcamK # inverse of Intrinsic by extrinsic
+        inputs["realIn"] = realIn # Intrinsic
+        inputs["realEx"] = realEx # Extrinsic, possibly edited to form in accordance with kitti
         return inputs
 
     def get_color(self, folder, frame_index, side, do_flip):

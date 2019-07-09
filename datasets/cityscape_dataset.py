@@ -45,13 +45,25 @@ class CITYSCAPEDataset(SingleDataset):
             self.load_depth = True
 
     def load_mask(self):
-        imgPath = 'assets/cityscapemask.png'
-        self.mask = dict()
-        maskImg = self.loader(imgPath)
+        imgPathl = 'assets/cityscapemask_left.png'
+        maskl = dict()
+        maskImg = self.loader(imgPathl)
         for i in range(self.num_scales):
             mask = np.array(maskImg.resize((int(self.width / (2**i)), int(self.height / (2**i))), pil.NEAREST))[:,:,0]
             mask = (mask < 1).astype(np.uint8)
-            self.mask[('mask', i)] = torch.from_numpy(mask)
+            maskl[('mask', i)] = torch.from_numpy(mask)
+
+        imgPathr = 'assets/cityscapemask_right.png'
+        maskr = dict()
+        maskImg = self.loader(imgPathr)
+        for i in range(self.num_scales):
+            mask = np.array(maskImg.resize((int(self.width / (2 ** i)), int(self.height / (2 ** i))), pil.NEAREST))[:,:, 0]
+            mask = (mask < 1).astype(np.uint8)
+            maskr[('mask', i)] = torch.from_numpy(mask)
+
+        self.mask = dict()
+        self.mask['left'] = maskl
+        self.mask['right'] = maskr
     def check_depth(self):
         return False
 

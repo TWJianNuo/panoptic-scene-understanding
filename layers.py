@@ -544,59 +544,101 @@ class SelfOccluMask(nn.Module):
     def init_kernel(self):
         # maxDisp is the largest disparity considered
         # added with being compated pixels
-        self.conv = torch.nn.Conv2d(in_channels=1, out_channels=self.maxDisp, kernel_size=(3,self.maxDisp + 2), stride=1, padding=self.pad, bias=True)
-        self.conv.bias = nn.Parameter(torch.arange(self.maxDisp).type(torch.FloatTensor), requires_grad=True)
         convweights = torch.zeros(self.maxDisp, 1, 3, self.maxDisp + 2)
         for i in range(0, self.maxDisp):
             convweights[i, 0, :, 0:2] = 1/6
             convweights[i, 0, :, i+2:i+3] = -1/3
-        self.conv.weight = nn.Parameter(convweights, requires_grad=True)
+        self.conv = torch.nn.Conv2d(in_channels=1, out_channels=self.maxDisp, kernel_size=(3,self.maxDisp + 2), stride=1, padding=self.pad, bias=False)
+        self.conv.bias = nn.Parameter(torch.arange(self.maxDisp).type(torch.FloatTensor), requires_grad=False)
+        self.conv.weight = nn.Parameter(convweights, requires_grad=False)
+
+        # convweights_opp = torch.flip(convweights, dims=[1])
+        # self.conv_opp = torch.nn.Conv2d(in_channels=1, out_channels=self.maxDisp, kernel_size=(3,self.maxDisp + 2), stride=1, padding=self.pad, bias=False)
+        # self.conv_opp.bias = nn.Parameter(torch.arange(self.maxDisp).type(torch.FloatTensor), requires_grad=False)
+        # self.conv_opp.weight = nn.Parameter(convweights_opp, requires_grad=False)
+
         # self.weightck = (torch.sum(torch.abs(self.conv.weight)) + torch.sum(torch.abs(self.conv.bias)))
         # self.gausconv = get_gaussian_kernel(channels = 1, padding = 1)
         # self.gausconv.cuda()
-    def forward(self, dispmap):
+    def forward(self, dispmap, side):
         # dispmap = self.gausconv(dispmap)
 
         # assert torch.abs(self.weightck - (torch.sum(torch.abs(self.conv.weight)) + torch.sum(torch.abs(self.conv.bias)))) < 1e-2, "weights changed"
         with torch.no_grad():
-            width = dispmap.shape[3]
-            output = self.conv(dispmap)
-            output = torch.min(output, dim=1, keepdim=True)[0]
-            output = output[:,:,self.pad-1:-(self.pad-1):,-width:]
-            mask = torch.tanh(-output * self.boostfac)
-            mask = torch.clamp(mask, min=0)
+            if side == 1:
+                width = dispmap.shape[3]
+                output = self.conv(dispmap)
+                output = torch.min(output, dim=1, keepdim=True)[0]
+                output = output[:,:,self.pad-1:-(self.pad-1):,-width:]
+                mask = torch.tanh(-output * self.boostfac)
+                # mask = torch.clamp(mask, min=0)
+                mask = mask.masked_fill(mask < 0.9, 0)
+            elif side == -1:
+                width = dispmap.shape[3]
+                dispmap_opp = torch.flip(dispmap, dims=[3])
+                output_opp = self.conv(dispmap_opp)
+                output_opp = torch.min(output_opp, dim=1, keepdim=True)[0]
+                output_opp = output_opp[:, :, self.pad - 1:-(self.pad - 1):, -width:]
+                mask = torch.tanh(-output_opp * self.boostfac)
+                # mask = torch.clamp(mask, min=0)
+                mask = mask.masked_fill(mask < 0.9, 0)
+                mask = torch.flip(mask, dims=[3])
             return mask
     def visualize(self, dispmap, viewind = 0):
         cm = plt.get_cmap('magma')
 
         # pad = int(self.maxDisp + 2 -1) / 2
         # dispmap = self.gausconv(dispmap)
-        height = dispmap.shape[2]
+        # height = dispmap.shape[2]
         width = dispmap.shape[3]
-        # dispmap = dispmap * fc.unsqueeze(1).unsqueeze(1).unsqueeze(1).repeat(1,1,height,width) * bs.unsqueeze(1).unsqueeze(1).unsqueeze(1).repeat(1,1,height,width)
         output = self.conv(dispmap)
         output = torch.min(output, dim=1, keepdim=True)[0]
         output = output[:,:,self.pad-1:-(self.pad-1):,-width:]
         # output = output[:,:,pad:-pad, pad:-pad]
         mask = torch.tanh(-output * self.boostfac)
-        mask = torch.clamp(mask, min=0)
-        # mask = mask.masked_fill(mask < 0.3, 0)
+        # mask = torch.clamp(mask, min=0)
+        mask = mask.masked_fill(mask < 0.9, 0)
+
+        dispmap_opp = torch.flip(dispmap, dims=[3])
+        output_opp = self.conv(dispmap_opp)
+        output_opp = torch.min(output_opp, dim=1, keepdim=True)[0]
+        output_opp = output_opp[:,:,self.pad-1:-(self.pad-1):,-width:]
+        # output = output[:,:,pad:-pad, pad:-pad]
+        mask_opp = torch.tanh(-output_opp * self.boostfac)
+        # mask_opp = torch.clamp(mask_opp, min=0)
+        mask_opp = mask_opp.masked_fill(mask_opp < 0.9, 0)
+        mask_opp = torch.flip(mask_opp, dims=[3])
+
+        # mask = (mask + mask_opp) / 2
         # mask[mask < 0] = 0
 
-        binmask = mask > 0.95
+        binmask = mask > 0.1
         viewbin = binmask[viewind, 0, :, :].detach().cpu().numpy()
+        # pil.fromarray((viewbin * 255).astype(np.uint8)).show()
+        #
+        # binmask_opp = mask_opp > 0.3
+        # viewbin = binmask_opp[viewind, 0, :, :].detach().cpu().numpy()
         # pil.fromarray((viewbin * 255).astype(np.uint8)).show()
 
         viewmask = mask[viewind, 0, :, :].detach().cpu().numpy()
         viewmask = (cm(viewmask)* 255).astype(np.uint8)
         # pil.fromarray(viewmask).show()
 
+        viewmask_opp = mask_opp[viewind, 0, :, :].detach().cpu().numpy()
+        viewmask_opp = (cm(viewmask_opp)* 255).astype(np.uint8)
+        # pil.fromarray(viewmask_opp).show()
+
         dispmap = dispmap * (1 - mask)
         viewdisp = dispmap[viewind, 0, :, :].detach().cpu().numpy()
         vmax = np.percentile(viewdisp, 90)
         viewdisp = (cm(viewdisp / vmax)* 255).astype(np.uint8)
         # pil.fromarray(viewdisp).show()
-        return pil.fromarray(viewmask), pil.fromarray(viewdisp)
+
+        # viewdisp_opp = dispmap_opp[viewind, 0, :, :].detach().cpu().numpy()
+        # vmax = np.percentile(viewdisp_opp, 90)
+        # viewdisp_opp = (cm(viewdisp_opp / vmax)* 255).astype(np.uint8)
+        # pil.fromarray(viewdisp_opp).show()
+        return pil.fromarray(viewmask), pil.fromarray(viewmask_opp)
 
 
 class ComputeDispUpLoss(nn.Module):

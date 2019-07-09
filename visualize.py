@@ -303,6 +303,7 @@ def evaluate(opt):
                 if not(key == 'height' or key == 'width' or key == 'tag' or key == 'cts_meta'):
                     inputs[key] = ipt.to(torch.device("cuda"))
             input_color = inputs[("color", 0, 0)].cuda()
+            input_color = torch.flip(input_color, dims=[3])
             features = encoder(input_color)
             outputs = dict()
             outputs.update(depth_decoder(features, computeSemantic=True, computeDepth=False))
@@ -402,6 +403,7 @@ def evaluate(opt):
                         combined = np.concatenate(combined, axis=1)
 
                 fig = pil.fromarray(combined)
+                # fig.show()
                 fig.save(os.path.join(dirpath, str(idx) + '.png'))
                 # fig_3d.save(os.path.join(dirpath, str(idx) + '_fig3d.png'))
                 # for k in range(10):
