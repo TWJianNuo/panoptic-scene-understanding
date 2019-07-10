@@ -132,8 +132,6 @@ class Trainer:
         tags = list()
         for t in self.format:
             tags.append(t[0])
-        # for p, tag in enumerate(tags):
-        #     self.compsurfnorm[tag] = ComputeSurfaceNormal(self.format[p][1], self.format[p][2], self.opt.batch_size)
         for p, tag in enumerate(tags):
             height = self.format[p][1]
             width = self.format[p][2]
@@ -146,8 +144,18 @@ class Trainer:
 
                 self.project_3d[(tag, scale)] = Project3D(self.opt.batch_size, h, w)
                 self.project_3d[(tag, scale)].to(self.device)
-        # if self.opt.isMulReg:
-        #     self.mulreg = ObjRegularization()
+
+        if self.opt.mulReg:
+            self.varWindow = 5
+            for p, tag in enumerate(tags):
+                height = self.format[p][1]
+                width = self.format[p][2]
+                self.compsurfnorm[tag] = ComputeSurfaceNormal(height = height, width = width, batch_size = self.opt.batch_size).cuda()
+            self.objReg = ObjRegularization(windowsize=self.varWindow).cuda()
+            self.skyId = name2label['sky'].trainId # sky
+            self.wallType = [name2label['building'].trainId, name2label['wall'].trainId, name2label['fence'].trainId]  # Building, wall, fence
+            self.roadType = [name2label['road'].trainId, name2label['sidewalk'].trainId, name2label['terrain'].trainId]  # road, sidewalk, terrain
+            self.permuType = [name2label['pole'].trainId, name2label['traffic sign'].trainId]  # Pole, traffic sign
 
     def set_dataset(self):
         """properly handle multiple dataset situation
@@ -243,7 +251,7 @@ class Trainer:
             outputs, losses = self.process_batch(inputs)
 
             self.model_optimizer.zero_grad()
-            losses["loss"].backward()
+            losses["totLoss"].backward()
             self.model_optimizer.step()
 
             duration = time.time() - before_op_time
@@ -265,13 +273,13 @@ class Trainer:
                 else:
                     loss_depth = -1
 
-                self.log_time(batch_idx, duration, loss_seman, loss_depth)
+                self.log_time(batch_idx, duration, loss_seman, loss_depth, losses["totLoss"])
 
                 if "depth_gt" in inputs:
                     self.compute_depth_losses(inputs, outputs, losses)
 
                 self.log("train", inputs, outputs, losses, writeImage=False)
-                if self.step % 10 == 0:
+                if self.step % 1 == 0:
                     self.val()
 
             # timeCount = np.array((self.timeSpan_decoder, self.timeSpan_mergeLayer, self.timeSpan_predict, self.timeSpan_loss))
@@ -383,8 +391,6 @@ class Trainer:
             if self.opt.v1_multiscale:
                 source_scale = scale
             else:
-                # disp = F.interpolate(
-                #     disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
                 disp = F.interpolate(disp, [height, width], mode="bilinear", align_corners=False)
                 source_scale = 0
 
@@ -406,6 +412,7 @@ class Trainer:
                 outputs[("sample", frame_id, scale)],
                 padding_mode="border")
 
+            outputs[("disp", scale)] = disp
             # if self.opt.isMulReg:
             #     outputs['surfacenorm'] = self.compsurfnorm[tag](depth * self.STEREO_SCALE_FACTOR)
 
@@ -468,8 +475,9 @@ class Trainer:
         """Compute the reprojection and smoothness losses for a minibatch
         """
         losses = {}
-        total_loss = 0
-
+        ssimLossMean = 0
+        tag = inputs['tag'][0]
+        loss = 0
         if self.is_regress_dispLoss(inputs, outputs):
             source_scale = 0
             target = inputs[("color", 0, source_scale)]
@@ -478,11 +486,9 @@ class Trainer:
             if self.opt.selfocclu:
                 sourceSSIMMask = self.selfOccluMask(outputs[('disp', source_scale)], inputs['stereo_T'][:,0,3])
             for scale in self.opt.scales:
-                loss = 0
                 reprojection_losses = []
-
                 # disp = outputs[("disp", scale)]
-                color = inputs[("color", 0, scale)]
+                # color = inputs[("color", 0, scale)]
 
                 for frame_id in self.opt.frame_ids[1:]:
                     pred = outputs[("color", frame_id, scale)]
@@ -591,36 +597,78 @@ class Trainer:
                         to_optimise = to_optimise.masked_select(inputs[('mask', 0)])
                 else:
                     to_optimise = to_optimise
-                loss += to_optimise.mean()
+                ssimLoss = to_optimise.mean()
+                loss += ssimLoss
+                ssimLossMean += ssimLoss
+                losses["loss_depth/{}".format(scale)] = ssimLoss
 
+                if self.opt.mulReg and ('seman_gt' in inputs or ('seman', source_scale) in outputs):
+                    surnormMap = self.compsurfnorm[tag](depthMap = outputs[('depth', 0, scale)], invcamK = inputs['invcamK'])
+
+                    skyMask = inputs['seman_gt'] == self.skyId
+                    skyerr = self.objReg.regularizeSky(outputs[('depth', 0, scale)], skyMask)
+
+                    wallMask = torch.ones(inputs['seman_gt'].shape, dtype=torch.uint8).cuda()
+                    roadMask = torch.ones(inputs['seman_gt'].shape, dtype=torch.uint8).cuda()
+                    permuMask = torch.ones(inputs['seman_gt'].shape, dtype=torch.uint8).cuda()
+
+                    with torch.no_grad():
+                        for m in self.wallType:
+                            wallMask = wallMask * (inputs['seman_gt'] != m)
+                        wallMask = 1 - wallMask
+                        wallMask = wallMask[:,:,1:-1,1:-1]
+
+                        for m in self.roadType:
+                            roadMask = roadMask * (inputs['seman_gt'] != m)
+                        roadMask = 1 - roadMask
+                        roadMask = roadMask[:,:,1:-1,1:-1]
+
+                        for m in self.permuType:
+                            permuMask = permuMask * (inputs['seman_gt'] != m)
+                        permuMask = 1 - permuMask
+                        permuMask = permuMask[:,:,1:-1,1:-1]
+
+                    bdErr, rdErr = self.objReg.regularizeBuildingRoad(surnormMap, wallMask, roadMask)
+                    padSize = int((self.varWindow-1) / 2)
+                    permuMask = permuMask[:, :, padSize : -padSize, padSize : -padSize]
+                    posVarErr = self.objReg.regularizePoleSign(surnormMap, permuMask)
+
+                    loss = loss + skyerr / 1000000 + bdErr / 100 + rdErr / 10 + posVarErr / 50
+                    if scale == 0:
+                        losses["loss_reg/{}".format("sky")] = skyerr
+                        losses["loss_reg/{}".format("building")] = bdErr
+                        losses["loss_reg/{}".format("road")] = rdErr
+                        losses["loss_reg/{}".format("poleSign")] = posVarErr
+
+                    # check
+                    # viewInd = 0
+                    # skyerrFig = self.objReg.visualize_regularizeSky(outputs[('depth', 0, scale)], skyMask, viewInd=viewInd)
+                    # BdErrFig, viewRdErrFig = self.objReg.visualize_regularizeBuildingRoad(surnormMap, wallMask, roadMask, outputs[('disp', 0)], viewInd=viewInd)
+                    # surVarFig = self.objReg.visualize_regularizePoleSign(surnormMap, permuMask, outputs[('disp', 0)], viewInd=viewInd)
 
                 if self.opt.disparity_smoothness > 1e-10:
-                    # Only add smoothness loss if required
-                    if outputs[('mul_disp', scale)].shape[1] > 1:
-                        mult_disp = outputs[('mul_disp', scale)][:,0:-1:,:]
-                    else:
-                        mult_disp = outputs[('mul_disp', scale)]
+                    # if outputs[('mul_disp', scale)].shape[1] > 1:
+                    #     mult_disp = outputs[('mul_disp', scale)][:,0:-1:,:]
+                    # else:
+                    #     mult_disp = outputs[('mul_disp', scale)]
+                    mult_disp = outputs[('disp', scale)]
                     mean_disp = mult_disp.mean(2, True).mean(3, True)
                     norm_disp = mult_disp / (mean_disp + 1e-7)
-                    smooth_loss = get_smooth_loss(norm_disp, color)
-                    loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
-
-                # if self.opt.self_occlusion:
-                #     a = 1
-
-                total_loss += loss
-                losses["loss_depth/{}".format(scale)] = loss
-            total_loss = total_loss / self.num_scales
-            losses["loss_depth"] = total_loss
-
-        # if ('seman', 0) in outputs:
+                    # smooth_loss = get_smooth_loss(norm_disp, color)
+                    smooth_loss = get_smooth_loss(norm_disp, target)
+                    if scale == 0:
+                        losses["loss_reg/{}".format("smooth")] = smooth_loss
+                    loss = loss + self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
+            loss = loss / self.num_scales
+            losses["loss_depth"] = ssimLossMean / self.num_scales
         if self.is_regress_semanticLoss(inputs, outputs):
             loss_seman, loss_semantoshow = self.semanticLoss(inputs, outputs) # semantic loss is scaled already
             for entry in loss_semantoshow:
                 losses[entry] = loss_semantoshow[entry]
-            total_loss = total_loss + self.semanticCoeff * loss_seman
+            loss = loss + self.semanticCoeff * loss_seman
             losses["loss_semantic"] = loss_seman
-        losses["loss"] = total_loss
+
+        losses["totLoss"] = loss
         return losses
 
 
@@ -708,7 +756,7 @@ class Trainer:
         for i, metric in enumerate(self.depth_metric_names):
             losses[metric] = np.array(depth_errors[i].cpu())
 
-    def log_time(self, batch_idx, duration, loss_semantic, loss_depth):
+    def log_time(self, batch_idx, duration, loss_semantic, loss_depth, loss_tot):
         """Print a logging statement to the terminal
         """
         samples_per_sec = self.opt.batch_size / duration
@@ -716,8 +764,8 @@ class Trainer:
         training_time_left = (
             self.num_total_steps / self.step - 1.0) * time_sofar if self.step > 0 else 0
         print_string = "epoch {:>3} | batch {:>6} | examples/s: {:5.1f}" + \
-            " | loss_semantic: {:.5f} | loss_depth: {:.5f} | time elapsed: {} | time left: {}"
-        print(print_string.format(self.epoch, batch_idx, samples_per_sec, loss_semantic, loss_depth,
+            " | loss_semantic: {:.5f} | loss_depth: {:.5f} | loss_tot: {:.5f} | time elapsed: {} | time left: {}"
+        print(print_string.format(self.epoch, batch_idx, samples_per_sec, loss_semantic, loss_depth, loss_tot,
                                   sec_to_hm_str(time_sofar), sec_to_hm_str(training_time_left)))
 
     def log(self, mode, inputs, outputs, losses, writeImage = False):
@@ -725,14 +773,15 @@ class Trainer:
         """
         writer = self.writers[mode]
         for l, v in losses.items():
-            writer.add_scalar("{}".format(l), v, self.step)
+            if l != 'totLoss':
+                writer.add_scalar("{}".format(l), v, self.step)
 
         if writeImage:
             cm = plt.get_cmap('magma')
             dispimg = outputs[("disp", 0)][0,0,:,:].cpu().numpy()
             dispimg = dispimg / 0.1
             viewmask = (cm(dispimg) * 255).astype(np.uint8)
-            pil.fromarray(viewmask).save("/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/trianRe/" + str(self.step) + ".png")
+            pil.fromarray(viewmask).save("/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/trianReCompare/" + str(self.step) + ".png")
 
             # for j in range(min(4, self.opt.batch_size)):
             #     for s in self.opt.scales:

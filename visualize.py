@@ -216,7 +216,7 @@ def evaluate(opt):
 
     print("-> Loading weights from {}".format(opt.load_weights_folder))
 
-    filenames = readlines(os.path.join(splits_dir, opt.split, "train_files.txt"))
+    filenames = readlines(os.path.join(splits_dir, opt.split, "val_files.txt"))
     encoder_path = os.path.join(opt.load_weights_folder, "encoder.pth")
     decoder_path = os.path.join(opt.load_weights_folder, "depth.pth")
 
@@ -300,6 +300,7 @@ def evaluate(opt):
 
     if viewMulReg:
         objReg = ObjRegularization()
+        objReg.cuda()
 
     with torch.no_grad():
         for idx, inputs in enumerate(dataloader):
@@ -368,20 +369,39 @@ def evaluate(opt):
 
                     wallType = [2, 3, 4] # Building, wall, fence
                     roadType = [0, 1, 9] # road, sidewalk, terrain
+                    permuType = [5, 7] # Pole, traffic sign
+                    chanWinSize = 5
 
                     wallMask = torch.ones_like(skyMask)
                     roadMask = torch.ones_like(skyMask)
+                    permuMask = torch.ones_like(skyMask)
 
                     with torch.no_grad():
                         for m in wallType:
                             wallMask = wallMask * (inputs['seman_gt'] != m)
                         wallMask = 1 - wallMask
+                        wallMask = wallMask[:,:,1:-1,1:-1]
 
                         for m in roadType:
                             roadMask = roadMask * (inputs['seman_gt'] != m)
                         roadMask = 1 - roadMask
+                        roadMask = roadMask[:,:,1:-1,1:-1]
 
-                    objReg.visualize_regularizeBuildingRoad(surnormMap, wallMask, roadMask, dispMap, viewInd=index)
+                        for m in permuType:
+                            permuMask = permuMask * (inputs['seman_gt'] != m)
+                        permuMask = 1 - permuMask
+                        permuMask = permuMask[:,:,1:-1,1:-1]
+
+                    BdErrFig, viewRdErrFig = objReg.visualize_regularizeBuildingRoad(surnormMap, wallMask, roadMask, dispMap, viewInd=index)
+
+
+                    padSize = int((chanWinSize-1) / 2)
+                    permuMask = permuMask[:, :, padSize : -padSize, padSize : -padSize]
+                    surVarFig = objReg.visualize_regularizePoleSign(surnormMap, permuMask, dispMap, viewInd=index)
+
+
+
+
 
 
 
@@ -436,7 +456,7 @@ def evaluate(opt):
                         combined = np.concatenate(combined, axis=1)
 
                 fig = pil.fromarray(combined)
-                fig.show()
+                # fig.show()
                 fig.save(os.path.join(dirpath, str(idx) + '.png'))
                 # fig_3d.save(os.path.join(dirpath, str(idx) + '_fig3d.png'))
                 # for k in range(10):

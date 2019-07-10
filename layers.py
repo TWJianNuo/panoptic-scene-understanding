@@ -485,10 +485,10 @@ class ComputeSurfaceNormal(nn.Module):
         return pil.fromarray(img)
 
 class varLoss(nn.Module):
-    def __init__(self, scale = 0, windowsize = 3, inchannel = 3):
+    def __init__(self, windowsize = 3, inchannel = 3):
         super(varLoss, self).__init__()
         assert windowsize % 2 != 0, "pls input odd kernel size"
-        self.scale = scale
+        # self.scale = scale
         self.windowsize = windowsize
         self.inchannel = inchannel
         self.initkernel()
@@ -498,11 +498,12 @@ class varLoss(nn.Module):
         weights = weights / (self.windowsize * self.windowsize)
         self.conv = nn.Conv2d(in_channels=self.inchannel, out_channels=self.inchannel, kernel_size=self.windowsize, padding=0, bias=False, groups=self.inchannel)
         self.conv.weight = nn.Parameter(weights, requires_grad=False)
-        self.conv.cuda()
+        # self.conv.cuda()
     def forward(self, input):
         pad = int((self.windowsize - 1) / 2)
         scaled = input[:,:, pad : -pad, pad : -pad] - self.conv(input)
-        loss = torch.mean(scaled * scaled) * self.scale
+        loss = scaled * scaled
+        # loss = torch.mean(scaled * scaled)
         # check
         # ckr = self.conv(input)
         # exptime = 100
@@ -514,6 +515,12 @@ class varLoss(nn.Module):
         #     ra = torch.mean(input[batchind, chanind, xind -pad : xind + pad + 1, yind - pad : yind + pad + 1])
         #     assert torch.abs(ra - ckr[batchind, chanind, xind - pad, yind - pad]) < 1e-5, "wrong"
         return loss
+    def visualize(self, input):
+        pad = int((self.windowsize - 1) / 2)
+        scaled = input[:,:, pad : -pad, pad : -pad] - self.conv(input)
+        errMap = scaled * scaled
+        # loss = torch.mean(scaled * scaled)
+        return errMap
 
 class SelfOccluMask(nn.Module):
     def __init__(self, maxDisp = 21):
@@ -612,7 +619,7 @@ class SelfOccluMask(nn.Module):
 
         viewmask = mask[viewind, 0, :, :].detach().cpu().numpy()
         viewmask = (cm(viewmask)* 255).astype(np.uint8)
-        pil.fromarray(viewmask).show()
+        # pil.fromarray(viewmask).show()
 
         viewmask_opp = mask_opp[viewind, 0, :, :].detach().cpu().numpy()
         viewmask_opp = (cm(viewmask_opp)* 255).astype(np.uint8)
@@ -773,24 +780,60 @@ class ComputeSmoothLoss(nn.Module):
 
 
 class ObjRegularization(nn.Module):
-    def __init__(self):
+    def __init__(self, windowsize = 5):
         super(ObjRegularization, self).__init__()
         self.skyDepth = 80
-        self.bdDir = torch.Tensor([0, 0, 1]).cuda()
-        self.roadDir = torch.Tensor([0, 0, 1]).cuda()
+        self.windowsize = windowsize
+        self.varloss = varLoss(windowsize = self.windowsize, inchannel = 3)
+        # self.bdDir = torch.Tensor([0, 0, 1]).cuda()
+        # self.roadDir = torch.Tensor([0, 0, 1]).cuda()
     def regularizeSky(self, depthMap, skyMask):
         regLoss = torch.mean((depthMap[skyMask] - self.skyDepth) ** 2)
         # Sky should be a definite longest value
         return regLoss
     def regularizeBuildingRoad(self, surfNorm, bdMask, rdMask):
         # Suppose surfNorm is bts x 3 x H x W
-        surfNormAligned = surfNorm.permute(1, 0, 2, 3).view(3, -1)
-        bdMaskAligned = bdMask.permute(1, 0, 2, 3).view(1, -1)
-        rdMaskAligned = rdMask.permute(1, 0, 2, 3).view(1, -1)
-        crossProduct = surfNormAligned @ self.bdDir.repeat([surfNormAligned.shape[0], 1])
-        bdRegLoss = torch.var(crossProduct[bdMaskAligned])
-        rdRegLoss = torch.var(crossProduct[rdMaskAligned]) * (torch.exp(crossProduct[rdMaskAligned] - 1))
+        height = bdMask.shape[2]
+        width = bdMask.shape[3]
+
+        bdErrMap = torch.zeros(bdMask.shape).cuda()
+        rdErrMap = torch.zeros(bdMask.shape).cuda()
+
+        bdRegLoss = 0
+        rdRegLoss = 0
+        for i in range(surfNorm.shape[0]):
+            tmpSurNorm = surfNorm[i, :, :, :].contiguous().view(3, -1).permute(1, 0)
+            tmpBdMask = bdMask[i, :, :, :].contiguous().view(1, -1).permute(1, 0).squeeze(1)
+            tmpRdMask = rdMask[i, :, :, :].contiguous().view(1, -1).permute(1, 0).squeeze(1)
+            # crossProduct = torch.sum(tmpSurNorm * self.bdDir.repeat([tmpSurNorm.shape[0], 1]), dim=1, keepdim=True)
+
+            bdRegLoss += torch.var(torch.abs(tmpSurNorm[tmpBdMask, 2]))
+            partialRoadVec = torch.abs(tmpSurNorm[tmpRdMask, 2])
+            rdRegLoss += torch.mean((partialRoadVec - torch.mean(partialRoadVec)) ** 2 * torch.exp(partialRoadVec - 1))
+            # Check
+            # torch.sum(torch.abs(tmpSurNorm[tmpBdMask, :]), dim=0)
+            # a = torch.abs(tmpSurNorm[tmpBdMask, :]).detach().cpu().numpy()
+
+            tmpBdErr = torch.zeros(tmpBdMask.shape).cuda()
+            tmpBdErr[tmpBdMask] = (torch.abs(tmpSurNorm[tmpBdMask, 2]) - torch.mean(
+                torch.abs(tmpSurNorm[tmpBdMask, 2]))) ** 2
+            bdErrMap[i, :, :, :] = tmpBdErr.view(1, height, width)
+
+            tmpRdErr = torch.zeros(tmpRdMask.shape).cuda()
+            tmpRdErr[tmpRdMask] = (partialRoadVec - torch.mean(partialRoadVec)) ** 2 * torch.exp(partialRoadVec - 1)
+            rdErrMap[i, :, :, :] = tmpRdErr.view(1, height, width)
+
+        bdRegLoss = bdRegLoss / surfNorm.shape[0]
+        rdRegLoss = rdRegLoss / surfNorm.shape[0]
         return bdRegLoss, rdRegLoss
+
+    def regularizePoleSign(self, surfNorm, mask):
+        surfNormLoss = self.varloss(surfNorm)
+        surfNormLoss = torch.mean(surfNormLoss, dim=1, keepdim=True)
+        surfNormLoss = torch.mean(surfNormLoss[mask])
+        return surfNormLoss
+
+
     def visualize_regularizeSky(self, depthMap, skyMask, viewInd = 0):
         regLoss = torch.mean((depthMap[skyMask] - self.skyDepth) ** 2)
 
@@ -815,30 +858,102 @@ class ObjRegularization(nn.Module):
         return pil.fromarray(viewErr)
     def visualize_regularizeBuildingRoad(self, surfNorm, bdMask, rdMask, dispMap, viewInd = 0):
         # Suppose surfNorm is bts x 3 x H x W
-        surfNormAligned = surfNorm.permute(0, 2, 3, 1).contiguous().view(-1, 3)
-        bdMaskAligned = bdMask.permute(0, 2, 3, 1).contiguous().view(-1, 1)
-        rdMaskAligned = rdMask.permute(0, 2, 3, 1).contiguous().view(-1, 1)
+        height = bdMask.shape[2]
+        width = bdMask.shape[3]
 
-        bdErrMap = torch.zeros_like(bdMaskAligned)
-        rdErrMap = torch.zeros_like(rdMaskAligned)
+        bdErrMap = torch.zeros(bdMask.shape).cuda()
+        rdErrMap = torch.zeros(bdMask.shape).cuda()
+
+        bdRegLoss = 0
+        rdRegLoss = 0
+        for i in range(surfNorm.shape[0]):
+            tmpSurNorm = surfNorm[i, :, :, :].contiguous().view(3, -1).permute(1,0)
+            tmpBdMask = bdMask[i, :, :, :].contiguous().view(1, -1).permute(1,0).squeeze(1)
+            tmpRdMask = rdMask[i, :, :, :].contiguous().view(1, -1).permute(1,0).squeeze(1)
+            # crossProduct = torch.sum(tmpSurNorm * self.bdDir.repeat([tmpSurNorm.shape[0], 1]), dim=1, keepdim=True)
 
 
-        crossProduct = torch.sum(surfNormAligned * self.bdDir.repeat([surfNormAligned.shape[0], 1]), dim=1, keepdim=True)
-        bdRegLoss = torch.var(crossProduct[bdMaskAligned])
-        rdRegLoss = torch.var(crossProduct[rdMaskAligned]) * (torch.exp(crossProduct[rdMaskAligned] - 1))
+            bdRegLoss += torch.var(torch.abs(tmpSurNorm[tmpBdMask, 2]))
+            partialRoadVec = torch.abs(tmpSurNorm[tmpRdMask, 2])
+            rdRegLoss += torch.mean((partialRoadVec - torch.mean(partialRoadVec))**2 * torch.exp(partialRoadVec - 1))
+            # Check
+            # torch.sum(torch.abs(tmpSurNorm[tmpBdMask, :]), dim=0)
+            # a = torch.abs(tmpSurNorm[tmpBdMask, :]).detach().cpu().numpy()
 
+            tmpBdErr = torch.zeros(tmpBdMask.shape).cuda()
+            tmpBdErr[tmpBdMask] = (torch.abs(tmpSurNorm[tmpBdMask, 2]) - torch.mean(torch.abs(tmpSurNorm[tmpBdMask, 2])))**2
+            bdErrMap[i, :, :, :] = tmpBdErr.view(1, height, width)
+
+            tmpRdErr = torch.zeros(tmpRdMask.shape).cuda()
+            tmpRdErr[tmpRdMask] = (partialRoadVec - torch.mean(partialRoadVec))**2 * torch.exp(partialRoadVec - 1)
+            rdErrMap[i, :, :, :] = tmpRdErr.view(1, height, width)
+
+        bdRegLoss = bdRegLoss / surfNorm.shape[0]
+        rdRegLoss = rdRegLoss / surfNorm.shape[0]
 
         surfacecolor = surfNorm / 2 + 0.5
-        surfimg = surfacecolor[viewInd, :, :, :].permute(1,2,0).cpu().numpy()
+        surfimg = surfacecolor[viewInd, :, :, :].detach().permute(1,2,0).cpu().numpy()
         surfimg = (surfimg * 255).astype(np.uint8)
-        pil.fromarray(surfimg).show()
+        # pil.fromarray(surfimg).show()
 
         cm = plt.get_cmap('magma')
         viewdisp = dispMap[viewInd, 0, :, :].detach().cpu().numpy()
         vmax = np.percentile(viewdisp, 90)
         viewdisp = (cm(viewdisp / vmax)* 255).astype(np.uint8)
-        pil.fromarray(viewdisp).show()
+        # pil.fromarray(viewdisp).show()
+
+        viewBdMask = bdMask[viewInd, :, :, :].squeeze(0).detach().cpu().numpy()
+        viewBdMask = (viewBdMask * 255).astype(np.uint8)
+        # pil.fromarray(viewBdMask).show()
+
+        viewRdMask = rdMask[viewInd, :, :, :].squeeze(0).detach().cpu().numpy()
+        viewRdMask = (viewRdMask * 255).astype(np.uint8)
+        # pil.fromarray(viewRdMask).show()
+
+        viewBdErr = bdErrMap[viewInd, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = 0.15
+        viewBdErr = viewBdErr / vmax
+        viewBdErr = (cm(viewBdErr / vmax)* 255).astype(np.uint8)
+        # pil.fromarray(viewBdErr).show()
+
+        viewRdErr = rdErrMap[viewInd, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = 0.15
+        viewRdErr = viewRdErr / vmax
+        viewRdErr = (cm(viewRdErr / vmax)* 255).astype(np.uint8)
+        # pil.fromarray(viewRdErr).show()
+
+        return pil.fromarray(viewBdErr), pil.fromarray(viewRdErr)
+
+    def visualize_regularizePoleSign(self, surfNorm, mask, dispMap, viewInd = 0):
+
+        surfNormLoss = self.varloss(surfNorm)
+        surfNormVar = self.varloss.visualize(surfNorm)
+        surfNormVar = torch.mean(surfNormVar, dim=1, keepdim=True)
+        surfNormVar = surfNormVar.masked_fill((1-mask), 0)
 
 
 
-        return bdRegLoss, rdRegLoss
+        surfacecolor = surfNorm / 2 + 0.5
+        surfimg = surfacecolor[viewInd, :, :, :].detach().permute(1,2,0).cpu().numpy()
+        surfimg = (surfimg * 255).astype(np.uint8)
+        # pil.fromarray(surfimg).show()
+
+        cm = plt.get_cmap('magma')
+        viewdisp = dispMap[viewInd, 0, :, :].detach().cpu().numpy()
+        vmax = np.percentile(viewdisp, 90)
+        viewdisp = (cm(viewdisp / vmax)* 255).astype(np.uint8)
+        # pil.fromarray(viewdisp).show()
+
+        viewSurVar = surfNormVar[viewInd, 0, :, :].detach().cpu().numpy()
+        vmax = 0.15
+        viewSurVar = (cm(viewSurVar / vmax)* 255).astype(np.uint8)
+        # pil.fromarray(viewSurVar).show()
+
+        return pil.fromarray(viewSurVar)
+
+
+class borderReg(nn.Module):
+    def __init__(self):
+        super(borderReg, self).__init__()
+    def computeBorder(self):
+        a = 1

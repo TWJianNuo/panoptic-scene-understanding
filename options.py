@@ -148,17 +148,16 @@ class MonodepthOptions:
         self.parser.add_argument("--selfocclu",
                                  help="if set, use self occlusion in training",
                                  action="store_true")
-        self.parser.add_argument("--selfoccluscale",
-                                 help="adjust self occlu loss scale",
-                                 type=float,
-                                 default=1e0)
+        # self.parser.add_argument("--selfoccluscale",
+        #                          help="adjust self occlu loss scale",
+        #                          type=float,
+        #                          default=1e0)
+        self.parser.add_argument("--mulReg",
+                                 help="set to use multiple objects' regularization",
+                                 action="store_true")
         self.parser.add_argument("--toyTrial",
                                  help="if set, experiment on toy problem",
                                  action="store_true")
-        # self.parser.add_argument("--isMulReg",
-        #                          help="if set, use obj wise regularization",
-        #                          action="store_true")
-
         # SYSTEM options
         self.parser.add_argument("--no_cuda",
                                  help="if set disables CUDA",
