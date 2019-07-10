@@ -785,10 +785,13 @@ class ObjRegularization(nn.Module):
         self.skyDepth = 80
         self.windowsize = windowsize
         self.varloss = varLoss(windowsize = self.windowsize, inchannel = 3)
+        self.largePad = nn.MaxPool2d(kernel_size=11, padding=5, stride = 1)
+        self.smallPad = nn.MaxPool2d(kernel_size=5, padding=2, stride = 1)
         # self.bdDir = torch.Tensor([0, 0, 1]).cuda()
         # self.roadDir = torch.Tensor([0, 0, 1]).cuda()
     def regularizeSky(self, depthMap, skyMask):
         regLoss = 0
+        skyMask = 1 - self.largePad((1 - skyMask).float()).byte()
         if torch.sum(skyMask) > 100:
             regLoss = torch.mean((depthMap[skyMask] - self.skyDepth) ** 2)
         # Sky should be a definite longest value
@@ -800,6 +803,9 @@ class ObjRegularization(nn.Module):
 
         # bdErrMap = torch.zeros(bdMask.shape).cuda()
         # rdErrMap = torch.zeros(bdMask.shape).cuda()
+
+        bdMask = 1 - self.largePad((1 - bdMask).float()).byte()
+        rdMask = 1 - self.largePad((1 - rdMask).float()).byte()
 
         bdRegLoss = 0
         rdRegLoss = 0
@@ -834,6 +840,7 @@ class ObjRegularization(nn.Module):
         return bdRegLoss, rdRegLoss
 
     def regularizePoleSign(self, surfNorm, mask):
+        mask = 1 - self.smallPad((1 - mask).float()).byte()
         surfNormLoss = 0
         if torch.sum(mask) > 100:
             surfNormLoss = self.varloss(surfNorm)
@@ -843,6 +850,9 @@ class ObjRegularization(nn.Module):
 
 
     def visualize_regularizeSky(self, depthMap, skyMask, viewInd = 0):
+        # Pad sky boundary
+        skyMask_shrink = 1 - self.largePad((1 - skyMask).float()).byte()
+
         regLoss = torch.mean((depthMap[skyMask] - self.skyDepth) ** 2)
 
         skyErrRec = torch.zeros_like(depthMap)
@@ -850,7 +860,10 @@ class ObjRegularization(nn.Module):
 
 
         viewMask = (skyMask[viewInd, 0, :, :].cpu().numpy() * 255).astype(np.uint8)
-        # pil.fromarray(viewMask).show()
+        viewShrinkMask = (skyMask_shrink[viewInd, 0, :, :].cpu().numpy() * 255).astype(np.uint8)
+        viewShrinkBorder = ((skyMask - skyMask_shrink)[viewInd, 0, :, :].cpu().numpy() * 255).astype(np.uint8)
+        viewMaskTot = np.concatenate([viewMask, viewShrinkMask, viewShrinkBorder], axis=0)
+        # pil.fromarray(viewMaskTot).show()
 
         cm = plt.get_cmap('magma')
         viewdisp = 1 / depthMap[viewInd, 0, :, :].detach().cpu().numpy()
@@ -863,9 +876,16 @@ class ObjRegularization(nn.Module):
         viewErr = (cm(viewErr / vmax) * 255).astype(np.uint8)
         # pil.fromarray(viewErr).show()
 
+
+
         return pil.fromarray(viewErr)
     def visualize_regularizeBuildingRoad(self, surfNorm, bdMask, rdMask, dispMap, viewInd = 0):
         # Suppose surfNorm is bts x 3 x H x W
+
+        bdMask_shrink = 1 - self.largePad((1 - bdMask).float()).byte()
+        rdMask_shrink = 1 - self.largePad((1 - rdMask).float()).byte()
+
+
         height = bdMask.shape[2]
         width = bdMask.shape[3]
 
@@ -912,11 +932,18 @@ class ObjRegularization(nn.Module):
 
         viewBdMask = bdMask[viewInd, :, :, :].squeeze(0).detach().cpu().numpy()
         viewBdMask = (viewBdMask * 255).astype(np.uint8)
-        # pil.fromarray(viewBdMask).show()
+        viewbdMask_shrink = (bdMask_shrink[viewInd, 0, :, :].cpu().numpy() * 255).astype(np.uint8)
+        viewbdMask_ShrinkBorder = (viewBdMask - viewbdMask_shrink)
+        viewbdMaskMaskTot = np.concatenate([viewBdMask, viewbdMask_shrink, viewbdMask_ShrinkBorder], axis=0)
+        # pil.fromarray(viewbdMaskMaskTot).show()
+
 
         viewRdMask = rdMask[viewInd, :, :, :].squeeze(0).detach().cpu().numpy()
         viewRdMask = (viewRdMask * 255).astype(np.uint8)
-        # pil.fromarray(viewRdMask).show()
+        viewRdMask_shrink = (rdMask_shrink[viewInd, 0, :, :].cpu().numpy() * 255).astype(np.uint8)
+        viewRdMask_ShrinkBorder = (viewRdMask - viewRdMask_shrink)
+        viewRdMaskMaskTot = np.concatenate([viewRdMask, viewRdMask_shrink, viewRdMask_ShrinkBorder], axis=0)
+        # pil.fromarray(viewRdMaskMaskTot).show()
 
         viewBdErr = bdErrMap[viewInd, :, :, :].squeeze(0).detach().cpu().numpy()
         vmax = 0.15
@@ -933,6 +960,7 @@ class ObjRegularization(nn.Module):
         return pil.fromarray(viewBdErr), pil.fromarray(viewRdErr)
 
     def visualize_regularizePoleSign(self, surfNorm, mask, dispMap, viewInd = 0):
+        mask_shrink = 1 - self.smallPad((1 - mask).float()).byte()
 
         surfNormLoss = self.varloss(surfNorm)
         surfNormVar = self.varloss.visualize(surfNorm)
@@ -957,11 +985,18 @@ class ObjRegularization(nn.Module):
         viewSurVar = (cm(viewSurVar / vmax)* 255).astype(np.uint8)
         # pil.fromarray(viewSurVar).show()
 
+        viewMask = (mask[viewInd, 0, :, :].cpu().numpy() * 255).astype(np.uint8)
+        viewShrinkMask = (mask_shrink[viewInd, 0, :, :].cpu().numpy() * 255).astype(np.uint8)
+        viewShrinkBorder = (viewMask - viewShrinkMask)
+        viewMaskTot = np.concatenate([viewMask, viewShrinkMask, viewShrinkBorder], axis=0)
+        # pil.fromarray(viewMaskTot).show()
+
         return pil.fromarray(viewSurVar)
 
 
-class borderReg(nn.Module):
+class BorderRegression(nn.Module):
     def __init__(self):
-        super(borderReg, self).__init__()
-    def computeBorder(self):
+        super(BorderRegression, self).__init__()
+    def computeBorder(self, foreMask, backMask, disp):
+        # Sample at the boundary between foreground obj and background obj
         a = 1
