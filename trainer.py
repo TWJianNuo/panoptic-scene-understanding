@@ -635,10 +635,14 @@ class Trainer:
 
                     loss = loss + skyerr / 1000000 + bdErr / 100 + rdErr / 10 + posVarErr / 50
                     if scale == 0:
-                        losses["loss_reg/{}".format("sky")] = skyerr
-                        losses["loss_reg/{}".format("building")] = bdErr
-                        losses["loss_reg/{}".format("road")] = rdErr
-                        losses["loss_reg/{}".format("poleSign")] = posVarErr
+                        if skyerr > 0:
+                            losses["loss_reg/{}".format("sky")] = skyerr
+                        if bdErr > 0:
+                            losses["loss_reg/{}".format("building")] = bdErr
+                        if rdErr > 0:
+                            losses["loss_reg/{}".format("road")] = rdErr
+                        if posVarErr > 0:
+                            losses["loss_reg/{}".format("poleSign")] = posVarErr
 
                     # check
                     # viewInd = 0

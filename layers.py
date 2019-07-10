@@ -788,49 +788,57 @@ class ObjRegularization(nn.Module):
         # self.bdDir = torch.Tensor([0, 0, 1]).cuda()
         # self.roadDir = torch.Tensor([0, 0, 1]).cuda()
     def regularizeSky(self, depthMap, skyMask):
-        regLoss = torch.mean((depthMap[skyMask] - self.skyDepth) ** 2)
+        regLoss = 0
+        if torch.sum(skyMask) > 100:
+            regLoss = torch.mean((depthMap[skyMask] - self.skyDepth) ** 2)
         # Sky should be a definite longest value
         return regLoss
     def regularizeBuildingRoad(self, surfNorm, bdMask, rdMask):
         # Suppose surfNorm is bts x 3 x H x W
-        height = bdMask.shape[2]
-        width = bdMask.shape[3]
+        # height = bdMask.shape[2]
+        # width = bdMask.shape[3]
 
-        bdErrMap = torch.zeros(bdMask.shape).cuda()
-        rdErrMap = torch.zeros(bdMask.shape).cuda()
+        # bdErrMap = torch.zeros(bdMask.shape).cuda()
+        # rdErrMap = torch.zeros(bdMask.shape).cuda()
 
         bdRegLoss = 0
         rdRegLoss = 0
         for i in range(surfNorm.shape[0]):
             tmpSurNorm = surfNorm[i, :, :, :].contiguous().view(3, -1).permute(1, 0)
-            tmpBdMask = bdMask[i, :, :, :].contiguous().view(1, -1).permute(1, 0).squeeze(1)
-            tmpRdMask = rdMask[i, :, :, :].contiguous().view(1, -1).permute(1, 0).squeeze(1)
             # crossProduct = torch.sum(tmpSurNorm * self.bdDir.repeat([tmpSurNorm.shape[0], 1]), dim=1, keepdim=True)
 
-            bdRegLoss += torch.var(torch.abs(tmpSurNorm[tmpBdMask, 2]))
-            partialRoadVec = torch.abs(tmpSurNorm[tmpRdMask, 2])
-            rdRegLoss += torch.mean((partialRoadVec - torch.mean(partialRoadVec)) ** 2 * torch.exp(partialRoadVec - 1))
+            tmpBdMask = bdMask[i, :, :, :].contiguous().view(1, -1).permute(1, 0).squeeze(1)
+            if torch.sum(tmpBdMask) > 50:
+                bdRegLoss += torch.var(torch.abs(tmpSurNorm[tmpBdMask, 2]))
+
+
+            tmpRdMask = rdMask[i, :, :, :].contiguous().view(1, -1).permute(1, 0).squeeze(1)
+            if torch.sum(tmpRdMask) > 50:
+                partialRoadVec = torch.abs(tmpSurNorm[tmpRdMask, 2])
+                rdRegLoss += torch.mean((partialRoadVec - torch.mean(partialRoadVec)) ** 2 * torch.exp(partialRoadVec - 1))
             # Check
             # torch.sum(torch.abs(tmpSurNorm[tmpBdMask, :]), dim=0)
             # a = torch.abs(tmpSurNorm[tmpBdMask, :]).detach().cpu().numpy()
 
-            tmpBdErr = torch.zeros(tmpBdMask.shape).cuda()
-            tmpBdErr[tmpBdMask] = (torch.abs(tmpSurNorm[tmpBdMask, 2]) - torch.mean(
-                torch.abs(tmpSurNorm[tmpBdMask, 2]))) ** 2
-            bdErrMap[i, :, :, :] = tmpBdErr.view(1, height, width)
+            # tmpBdErr = torch.zeros(tmpBdMask.shape).cuda()
+            # tmpBdErr[tmpBdMask] = (torch.abs(tmpSurNorm[tmpBdMask, 2]) - torch.mean(
+            #     torch.abs(tmpSurNorm[tmpBdMask, 2]))) ** 2
+            # bdErrMap[i, :, :, :] = tmpBdErr.view(1, height, width)
 
-            tmpRdErr = torch.zeros(tmpRdMask.shape).cuda()
-            tmpRdErr[tmpRdMask] = (partialRoadVec - torch.mean(partialRoadVec)) ** 2 * torch.exp(partialRoadVec - 1)
-            rdErrMap[i, :, :, :] = tmpRdErr.view(1, height, width)
+            # tmpRdErr = torch.zeros(tmpRdMask.shape).cuda()
+            # tmpRdErr[tmpRdMask] = (partialRoadVec - torch.mean(partialRoadVec)) ** 2 * torch.exp(partialRoadVec - 1)
+            # rdErrMap[i, :, :, :] = tmpRdErr.view(1, height, width)
 
         bdRegLoss = bdRegLoss / surfNorm.shape[0]
         rdRegLoss = rdRegLoss / surfNorm.shape[0]
         return bdRegLoss, rdRegLoss
 
     def regularizePoleSign(self, surfNorm, mask):
-        surfNormLoss = self.varloss(surfNorm)
-        surfNormLoss = torch.mean(surfNormLoss, dim=1, keepdim=True)
-        surfNormLoss = torch.mean(surfNormLoss[mask])
+        surfNormLoss = 0
+        if torch.sum(mask) > 100:
+            surfNormLoss = self.varloss(surfNorm)
+            surfNormLoss = torch.mean(surfNormLoss, dim=1, keepdim=True)
+            surfNormLoss = torch.mean(surfNormLoss[mask])
         return surfNormLoss
 
 
