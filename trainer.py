@@ -633,7 +633,7 @@ class Trainer:
                     permuMask = permuMask[:, :, padSize : -padSize, padSize : -padSize]
                     posVarErr = self.objReg.regularizePoleSign(surnormMap, permuMask)
 
-                    loss = loss + skyerr / 1000000 + bdErr / 100 + rdErr / 10 + posVarErr / 50
+                    loss = loss + (skyerr / 1000000 + bdErr / 100 + rdErr / 10 + posVarErr / 50) * self.opt.mulRegScale
                     if scale == 0:
                         if skyerr > 0:
                             losses["loss_reg/{}".format("sky")] = skyerr

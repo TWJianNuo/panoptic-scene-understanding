@@ -155,6 +155,10 @@ class MonodepthOptions:
         self.parser.add_argument("--mulReg",
                                  help="set to use multiple objects' regularization",
                                  action="store_true")
+        self.parser.add_argument("--mulRegScale",
+                                 type=float,
+                                 help="change regularization term scale",
+                                 default=1.0)
         self.parser.add_argument("--toyTrial",
                                  help="if set, experiment on toy problem",
                                  action="store_true")
