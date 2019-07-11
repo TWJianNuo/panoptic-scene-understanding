@@ -157,6 +157,19 @@ class Trainer:
             self.roadType = [name2label['road'].trainId, name2label['sidewalk'].trainId, name2label['terrain'].trainId]  # road, sidewalk, terrain
             self.permuType = [name2label['pole'].trainId, name2label['traffic sign'].trainId]  # Pole, traffic sign
 
+        if self.opt.borderRegression:
+            self.foregroundType = [name2label['pole'].trainId, name2label['traffic light'].trainId, name2label['traffic sign'].trainId, name2label['person'].trainId,
+                                   name2label['rider'].trainId, name2label['car'].trainId, name2label['truck'].trainId, name2label['bus'].trainId,
+                                   name2label['train'].trainId, name2label['motorcycle'].trainId, name2label['bicycle'].trainId]
+            # pole, traffic light, traffic sign, person, rider, car, truck, bus, train, motorcycle, bicycle
+            self.backgroundType = [name2label['road'].trainId, name2label['sidewalk'].trainId, name2label['building'].trainId, name2label['wall'].trainId,
+                                   name2label['fence'].trainId, name2label['vegetation'].trainId, name2label['terrain'].trainId, name2label['sky'].trainId]
+            # road, sidewalk, building, wall, fence, vegetation, terrain, sky
+            self.suppressType = [name2label['unlabeled'].trainId]  # Suppress no label lines
+            self.borderRegress = BorderRegression()
+            self.borderRegress.cuda()
+
+
     def set_dataset(self):
         """properly handle multiple dataset situation
         """
@@ -643,6 +656,35 @@ class Trainer:
                             losses["loss_reg/{}".format("road")] = rdErr
                         if posVarErr > 0:
                             losses["loss_reg/{}".format("poleSign")] = posVarErr
+
+
+                if self.borderRegress:
+                    # foregroundType = [5, 6, 7, 11, 12, 13, 14, 15, 16, 17, 18]
+                    # backgroundType = [0, 1, 2, 3, 4, 8, 9, 10]
+                    # suppressType = [255]
+                    foreGroundMask = torch.ones(outputs[('disp', scale)].shape).cuda().byte()
+                    backGroundMask = torch.ones(outputs[('disp', scale)].shape).cuda().byte()
+                    suppresMask = torch.ones(outputs[('disp', scale)].shape).cuda().byte()
+
+                    with torch.no_grad():
+                        for m in self.foregroundType:
+                            foreGroundMask = foreGroundMask * (inputs['seman_gt'] != m)
+                        foreGroundMask = 1 - foreGroundMask
+                        for m in self.backgroundType:
+                            backGroundMask = backGroundMask * (inputs['seman_gt'] != m)
+                        backGroundMask = 1 - backGroundMask
+                        for m in self.suppressType:
+                            suppresMask = suppresMask * (inputs['seman_gt'] != m)
+                        suppresMask = 1 - suppresMask
+                        suppresMask = suppresMask.float()
+                        combinedMask = torch.cat([foreGroundMask, backGroundMask], dim=1).float()
+
+                    # borderRegFig = self.borderRegress.visualize_computeBorder(outputs[('disp', scale)], combinedMask, suppresMask = suppresMask, viewIndex=0)
+                    borderLoss = self.borderRegress.borderRegression(outputs[('disp', scale)], combinedMask, suppresMask = suppresMask)
+                    loss += borderLoss * 0.1 * self.opt.borderRegScale
+                    if scale == 0:
+                        losses["loss_reg/{}".format("borderReg")] = borderLoss
+                        # print("borderLoss: %f" % borderLoss)
 
                     # check
                     # viewInd = 0

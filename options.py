@@ -159,6 +159,13 @@ class MonodepthOptions:
                                  type=float,
                                  help="change regularization term scale",
                                  default=1.0)
+        self.parser.add_argument("--borderRegression",
+                                 help="if set, experiment on toy problem",
+                                 action="store_true")
+        self.parser.add_argument("--borderRegScale",
+                                 type=float,
+                                 help="change regularization term scale",
+                                 default=1.0)
         self.parser.add_argument("--toyTrial",
                                  help="if set, experiment on toy problem",
                                  action="store_true")
