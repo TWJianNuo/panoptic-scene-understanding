@@ -995,8 +995,122 @@ class ObjRegularization(nn.Module):
 
 
 class BorderRegression(nn.Module):
-    def __init__(self):
+    def __init__(self, toleWid = 3, senseWid = 11):
         super(BorderRegression, self).__init__()
-    def computeBorder(self, foreMask, backMask, disp):
+        self.toleWid = toleWid
+        self.senseWid = senseWid
+        self.init_conv()
+    def init_conv(self):
+        weightsx = torch.Tensor([
+                                [-1., 0., 1.],
+                                [-2., 0., 2.],
+                                [-1., 0., 1.]]).unsqueeze(0).unsqueeze(0)
+
+        weightsy = torch.Tensor([
+                                [1., 2., 1.],
+                                [0., 0., 0.],
+                                [-1., -2., -1.]]).unsqueeze(0).unsqueeze(0)
+        self.disp_convx = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+        self.disp_convy = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+
+        self.disp_convx.weight = nn.Parameter(weightsx,requires_grad=False)
+        self.disp_convy.weight = nn.Parameter(weightsy,requires_grad=False)
+
+
+        self.seman_convx = nn.Conv2d(in_channels=2, out_channels=2, kernel_size=3, padding=1, bias=False, groups=2)
+        self.seman_convy = nn.Conv2d(in_channels=2, out_channels=2, kernel_size=3, padding=1, bias=False, groups=2)
+
+        self.seman_convx.weight = nn.Parameter(weightsx.repeat([2,1,1,1]),requires_grad=False)
+        self.seman_convy.weight = nn.Parameter(weightsy.repeat([2,1,1,1]),requires_grad=False)
+
+
+        toleWeight = torch.ones([3, self.toleWid]).unsqueeze(0).unsqueeze(0) / self.toleWid
+        senseWeight = torch.ones([3, self.senseWid]).unsqueeze(0).unsqueeze(0) / self.senseWid
+
+        self.toleKernel = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=[3, self.toleWid], padding=[1, int((self.toleWid - 1) / 2)], bias=False)
+        self.senseKernel = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=[3, self.senseWid], padding=[1, int((self.senseWid - 1) / 2)], bias=False)
+
+        self.toleKernel.weight = nn.Parameter(toleWeight, requires_grad=False)
+        self.senseKernel.weight = nn.Parameter(senseWeight, requires_grad=False)
+
+
+        self.visualizeTole = nn.MaxPool2d(kernel_size=[3, int((self.toleWid + 1) / 2)], stride=1, padding=[1, int((self.toleWid + 1) / 2 / 2)])
+        self.visualizeSense = nn.MaxPool2d(kernel_size=[3, int((self.senseWid + 1) / 2)], stride=1, padding=[1, int((self.senseWid + 1) / 2 / 2)])
+
+    def visualize_computeBorder(self, disp, combinedMask, suppresMask = None, viewIndex = 0):
         # Sample at the boundary between foreground obj and background obj
-        a = 1
+        # combinedMask channel: [foregroundMask, backgroundMask]
+
+        dispGrad = torch.abs(self.disp_convx(disp)) + torch.abs(self.disp_convy(disp))
+        maskGrad = torch.abs(self.seman_convx(combinedMask)) # + torch.abs(self.seman_convy(combinedMask))
+        maskGrad = torch.sum(maskGrad, dim=1, keepdim=True)
+        if suppresMask is not None:
+            maskSuppress = torch.abs(self.disp_convx(suppresMask)) # + torch.abs(self.disp_convy(suppresMask))
+            maskGrad = maskGrad - maskSuppress
+            maskGrad = torch.clamp(maskGrad, min=0)
+
+
+        viewForeGroundMask = combinedMask[viewIndex, 0, :, :].detach().cpu().numpy()
+        viewForeGroundMask = (viewForeGroundMask * 255).astype(np.uint8)
+        # pil.fromarray(viewForeGroundMask).show()
+
+        viewBackGroundMask = combinedMask[viewIndex, 1, :, :].detach().cpu().numpy()
+        viewBackGroundMask = (viewBackGroundMask * 255).astype(np.uint8)
+        # pil.fromarray(viewBackGroundMask).show()
+
+        cm = plt.get_cmap('magma')
+        viewDispGrad = dispGrad[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = np.percentile(viewDispGrad, 95)
+        viewDispGrad = (cm(viewDispGrad / vmax)* 255).astype(np.uint8)
+        # pil.fromarray(viewDispGrad).show()
+
+        viewDisp = disp[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = np.percentile(viewDisp, 90)
+        viewDisp = (cm(viewDisp / vmax)* 255).astype(np.uint8)
+        # pil.fromarray(viewDisp).show()
+
+        viewMaskGrad = maskGrad[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = np.percentile(viewMaskGrad, 90)
+        viewMaskGrad = (cm(viewMaskGrad / vmax)* 255).astype(np.uint8)
+        # pil.fromarray(viewMaskGrad).show()
+
+        viewBackGroundMask_red = np.stack([viewBackGroundMask, np.zeros_like(viewBackGroundMask), np.zeros_like(viewBackGroundMask)], axis=2)
+        viewMaskGradObj = (viewBackGroundMask_red * 0.7 + viewMaskGrad[:,:,0:3] * 0.3).astype(np.uint8)
+        # pil.fromarray(viewMaskGradObj).resize([viewMaskGradObj.shape[1] * 2, viewMaskGradObj.shape[0] * 2]).show()
+
+        cmk = plt.get_cmap('hot')
+        maskGrad_tole = self.visualizeTole(maskGrad)
+        viewMaskGradTole = maskGrad_tole[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = np.percentile(viewMaskGradTole, 95)
+        viewMaskGradTole = (cmk(viewMaskGradTole / vmax)* 255).astype(np.uint8)
+        # pil.fromarray(viewMaskGradTole).show()
+
+        toleOverlay = (viewDispGrad[:,:,0:3] * 0.7 + viewMaskGradTole[:, :-1, 0:3] * 0.3).astype(np.uint8)
+        # pil.fromarray(toleOverlay).show()
+
+
+        maskGrad_sense = self.visualizeSense(maskGrad)
+        viewMaskGradSense = maskGrad_sense[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = np.percentile(viewMaskGradSense, 95)
+        viewMaskGradSense = (cmk(viewMaskGradSense / vmax)* 255).astype(np.uint8)
+        # pil.fromarray(viewMaskGradSense).show()
+
+        senseOverlay = (viewDispGrad[:,:,0:3] * 0.5 + viewMaskGradSense[:, :-1, 0:3] * 0.5).astype(np.uint8)
+        # pil.fromarray(senseOverlay).show()
+
+        toleLevel = self.toleKernel(dispGrad)
+        senseLevel = self.senseKernel(dispGrad)
+        err = torch.tanh((1 - toleLevel / senseLevel)) + 1
+        err = err * maskGrad * disp
+
+
+        viewErr = err[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = np.percentile(viewErr, 99.95)
+        viewErr = viewErr / vmax
+        viewErr = (cm(viewErr)* 255).astype(np.uint8)
+        # pil.fromarray(viewErr).show()
+
+        errDisp = np.concatenate([viewDispGrad[:,:,0:3], viewErr[:, :, 0:3], toleOverlay[:, :, 0:3]], axis=0)
+        # pil.fromarray(errDisp).show()
+        return pil.fromarray(errDisp)
+

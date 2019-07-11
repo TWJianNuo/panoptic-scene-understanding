@@ -267,6 +267,7 @@ def evaluate(opt):
     viewDispUp = True
     viewSmooth = True
     viewMulReg = True
+    viewBorderRegress = True
     height = 256
     width = 512
     tensor23dPts = Tensor23dPts()
@@ -301,6 +302,10 @@ def evaluate(opt):
     if viewMulReg:
         objReg = ObjRegularization()
         objReg.cuda()
+
+    if viewBorderRegress:
+        borderRegress = BorderRegression()
+        borderRegress.cuda()
 
     with torch.no_grad():
         for idx, inputs in enumerate(dataloader):
@@ -399,10 +404,33 @@ def evaluate(opt):
                     permuMask = permuMask[:, :, padSize : -padSize, padSize : -padSize]
                     surVarFig = objReg.visualize_regularizePoleSign(surnormMap, permuMask, dispMap, viewInd=index)
 
+                if viewBorderRegress:
+                    foregroundType = [5, 6, 7, 11, 12, 13, 14, 15, 16, 17, 18] # pole, traffic light, traffic sign, person, rider, car, truck, bus, train, motorcycle, bicycle, Ignored
+                    backgroundType = [0, 1, 2, 3, 4, 8, 9, 10] # road, sidewalk, building, wall, fence, vegetation, terrain, sky, Ignored
+                    suppressType = [255] # Suppress no label lines
+                    # foreGroundMask = torch.sum(inputs['seman_gt'][:, foregroundType, :, :], dim=1, keepdim=True)
+                    # backGroundMask = torch.sum(inputs['seman_gt'][:, backgroundType, :, :], dim=1, keepdim=True)
+                    foreGroundMask = torch.ones(dispMap.shape).cuda().byte()
+                    backGroundMask = torch.ones(dispMap.shape).cuda().byte()
+                    suppresMask = torch.ones(dispMap.shape).cuda().byte()
 
+                    with torch.no_grad():
+                        for m in foregroundType:
+                            foreGroundMask = foreGroundMask * (inputs['seman_gt'] != m)
+                        foreGroundMask = 1 - foreGroundMask
+                        for m in backgroundType:
+                            backGroundMask = backGroundMask * (inputs['seman_gt'] != m)
+                        backGroundMask = 1 - backGroundMask
+                        for m in suppressType:
+                            suppresMask = suppresMask * (inputs['seman_gt'] != m)
+                        suppresMask = 1 - suppresMask
+                        suppresMask = suppresMask.float()
+                        combinedMask = torch.cat([foreGroundMask, backGroundMask], dim=1).float()
 
+                    borderRegFig = borderRegress.visualize_computeBorder(dispMap, combinedMask, suppresMask = suppresMask, viewIndex=index)
 
-
+                else:
+                    borderRegFig = None
 
 
 
@@ -458,6 +486,8 @@ def evaluate(opt):
                 fig = pil.fromarray(combined)
                 # fig.show()
                 fig.save(os.path.join(dirpath, str(idx) + '.png'))
+                if borderRegFig is not None:
+                    borderRegFig.save(os.path.join(dirpath, str(idx) + '_borderRegress.png'))
                 # fig_3d.save(os.path.join(dirpath, str(idx) + '_fig3d.png'))
                 # for k in range(10):
                 #     fig_disp = tensor2disp(outputs[('disp', 0)], ind=k)
