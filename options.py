@@ -105,6 +105,9 @@ class MonodepthOptions:
                                  default=15)
         self.parser.add_argument("--writeImg",
                                  action="store_true")
+        self.parser.add_argument("--debug",
+                                 action="store_true")
+
 
         # ABLATION options
         self.parser.add_argument("--v1_multiscale",

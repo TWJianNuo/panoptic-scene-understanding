@@ -298,7 +298,7 @@ class Trainer:
                 if self.opt.borderRegression:
                     print("border loss %f" % (losses["loss_reg/borderReg"]))
 
-                if self.opt.borderSim:
+                if self.opt.borderSim and self.opt.debug:
                     print("borderSim loss %f, borderContrast loss %f" % (losses["loss_reg/borderSimilar"], losses["loss_reg/borderContrast"]))
 
                 if "depth_gt" in inputs:
