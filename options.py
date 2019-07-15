@@ -172,6 +172,10 @@ class MonodepthOptions:
         self.parser.add_argument("--borderSim",
                                  help="if set, apply border similarity loss",
                                  action="store_true")
+        self.parser.add_argument("--borderSimScale",
+                                 type=float,
+                                 help="if set, apply border similarity loss",
+                                 default=1.0)
         # SYSTEM options
         self.parser.add_argument("--no_cuda",
                                  help="if set disables CUDA",
