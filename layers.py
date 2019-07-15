@@ -1382,7 +1382,7 @@ class BorderSimilarity(nn.Module):
 class RandomSampleNeighbourPts(nn.Module):
     def __init__(self, batchNum = 10):
         super(RandomSampleNeighbourPts, self).__init__()
-        self.wdSize = 7 # Generate points within a window of 5 by 5
+        self.wdSize = 11 # Generate points within a window of 5 by 5
         self.ptsNum = 50000 # Each image generate 50000 number of points
         self.batchNum = batchNum
         self.init_conv()
@@ -1465,9 +1465,9 @@ class RandomSampleNeighbourPts(nn.Module):
         if torch.sum(contrastCompPairPos) == 0 or torch.sum(contrastCompAnchorPos) == 0:
             contrastLoss = 0
         else:
-            contrastLoss = torch.mean(torch.tanh(anchorDisp[contrastCompPairPos] - pairDisp[contrastCompPairPos])) \
-                            + torch.mean(torch.tanh(pairDisp[contrastCompAnchorPos] - anchorDisp[contrastCompAnchorPos]))
-            contrastLoss = contrastLoss / 2 + 1
+            contrastLoss = torch.mean((anchorDisp[contrastCompPairPos] - pairDisp[contrastCompPairPos])) \
+                            + torch.mean((pairDisp[contrastCompAnchorPos] - anchorDisp[contrastCompAnchorPos]))
+            contrastLoss = contrastLoss / 2 + 0.02
         return similarLoss, contrastLoss
     def visualize_randomSample(self, disp, foredgroundMask, suppresMask = None, viewIndex = 0):
         maskGrad = torch.abs(self.seman_convx(foredgroundMask)) + torch.abs(self.seman_convy(foredgroundMask))
@@ -1485,7 +1485,8 @@ class RandomSampleNeighbourPts(nn.Module):
         centery = torch.LongTensor(self.ptsNum * self.batchNum).random_(self.wdSize, height - self.wdSize)
 
         bx = torch.LongTensor(self.ptsNum * self.batchNum).random_(-self.wdSize, self.wdSize + 1)
-        by = torch.LongTensor(self.ptsNum * self.batchNum).random_(-self.wdSize, self.wdSize + 1)
+        by = torch.LongTensor(self.ptsNum * self.batchNum).random_(-7, 8)
+        # by = torch.LongTensor(self.ptsNum * self.batchNum).random_(-self.wdSize, self.wdSize + 1)
 
         pairedx = centerx + bx
         pairedy = centery + by
@@ -1531,10 +1532,10 @@ class RandomSampleNeighbourPts(nn.Module):
 
 
         # View the point pairs within same objects cat
-        plt.imshow(viewForeMask[:,:,0:3])
+        plt.imshow(viewDisp[:,:,0:3])
         curChannelPosPts = (channelInd == viewIndex) * smilarComp
-        plt.scatter(centerx[curChannelPosPts][::10], centery[curChannelPosPts][::10], c = 'r', s = 0.5)
-        plt.scatter(pairedx[curChannelPosPts][::10], pairedy[curChannelPosPts][::10], c='g', s=0.5)
+        plt.scatter(centerx[curChannelPosPts][::2], centery[curChannelPosPts][::2], c = 'r', s = 0.5)
+        plt.scatter(pairedx[curChannelPosPts][::2], pairedy[curChannelPosPts][::2], c='g', s=0.5)
         plt.close()
 
 

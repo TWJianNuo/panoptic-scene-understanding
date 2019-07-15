@@ -173,7 +173,7 @@ class Trainer:
             self.foregroundType = [name2label['pole'].trainId, name2label['traffic light'].trainId, name2label['traffic sign'].trainId, name2label['person'].trainId,
                                    name2label['rider'].trainId, name2label['car'].trainId, name2label['truck'].trainId, name2label['bus'].trainId,
                                    name2label['train'].trainId, name2label['motorcycle'].trainId, name2label['bicycle'].trainId]
-            self.rdSampleOnBorder = RandomSampleNeighbourPts()
+            self.rdSampleOnBorder = RandomSampleNeighbourPts(batchNum=self.opt.batch_size)
             self.rdSampleOnBorder.cuda()
 
 
@@ -690,10 +690,10 @@ class Trainer:
                         foreGroundMask = foreGroundMask.float()
                     simBorderLoss, contrastBorderLoss = self.rdSampleOnBorder.randomSampleReg(outputs[('disp', scale)], foreGroundMask)
                     # loss += simBorderLoss * 0.1 + contrastBorderLoss * 0.001
-                    loss += simBorderLoss * 0.3 * self.opt.borderSimScale + contrastBorderLoss * 0.2 * self.opt.borderSimScale
-                    if simBorderLoss > 0:
+                    loss += simBorderLoss * 0.7 * self.opt.borderSimScale + contrastBorderLoss * 0.2 * self.opt.borderSimScale
+                    if simBorderLoss != 0:
                         losses["loss_reg/{}".format("borderSimilar")] = simBorderLoss
-                    if contrastBorderLoss > 0:
+                    if contrastBorderLoss != 0:
                         losses["loss_reg/{}".format("borderContrast")] = contrastBorderLoss
                     # self.rdSampleOnBorder
 
