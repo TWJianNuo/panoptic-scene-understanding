@@ -169,6 +169,13 @@ class Trainer:
             self.borderRegress = BorderRegression()
             self.borderRegress.cuda()
 
+        if self.opt.borderSim:
+            self.foregroundType = [name2label['pole'].trainId, name2label['traffic light'].trainId, name2label['traffic sign'].trainId, name2label['person'].trainId,
+                                   name2label['rider'].trainId, name2label['car'].trainId, name2label['truck'].trainId, name2label['bus'].trainId,
+                                   name2label['train'].trainId, name2label['motorcycle'].trainId, name2label['bicycle'].trainId]
+            self.rdSampleOnBorder = RandomSampleNeighbourPts()
+            self.rdSampleOnBorder.cuda()
+
 
     def set_dataset(self):
         """properly handle multiple dataset situation
@@ -287,6 +294,12 @@ class Trainer:
                     loss_depth = -1
 
                 self.log_time(batch_idx, duration, loss_seman, loss_depth, losses["totLoss"])
+                # print("border loss1 %f, border loss % f" % (losses["loss_reg/borderReg"], losses["loss_reg/borderReg_overflow"]))
+                if self.opt.borderRegression:
+                    print("border loss %f" % (losses["loss_reg/borderReg"]))
+
+                if self.opt.borderSim:
+                    print("borderSim loss %f, borderContrast loss %f" % (losses["loss_reg/borderSimilar"], losses["loss_reg/borderContrast"]))
 
                 if "depth_gt" in inputs:
                     self.compute_depth_losses(inputs, outputs, losses)
@@ -497,7 +510,18 @@ class Trainer:
             # height = target.shape[2]
             # width = target.shape[3]
             if self.opt.selfocclu:
+                # expand = torch.nn.MaxPool2d(kernel_size=5, padding=2, stride=1).cuda()
                 sourceSSIMMask = self.selfOccluMask(outputs[('disp', source_scale)], inputs['stereo_T'][:,0,3])
+                # sourceSSIMMask = expand(sourceSSIMMask)
+                # Check
+                # viewind = 0
+                # cm = plt.get_cmap('magma')
+                # viewSSIMMask = sourceSSIMMask[viewind, 0, :, :].detach().cpu().numpy()
+                # vmax = np.percentile(viewSSIMMask, 95)
+                # viewSSIMMask = (cm(viewSSIMMask / vmax) * 255).astype(np.uint8)
+                # pil.fromarray(viewSSIMMask).show()
+                # viewSSIMMask, viewSSIMMask_opp = self.selfOccluMask.visualize(outputs[('disp', source_scale)], viewind=0)
+
             for scale in self.opt.scales:
                 reprojection_losses = []
                 # disp = outputs[("disp", scale)]
@@ -657,8 +681,23 @@ class Trainer:
                         if posVarErr > 0:
                             losses["loss_reg/{}".format("poleSign")] = posVarErr
 
+                if self.opt.borderSim:
+                    foreGroundMask = torch.ones(outputs[('disp', scale)].shape).cuda().byte()
+                    with torch.no_grad():
+                        for m in self.foregroundType:
+                            foreGroundMask = foreGroundMask * (inputs['seman_gt'] != m)
+                        foreGroundMask = 1 - foreGroundMask
+                        foreGroundMask = foreGroundMask.float()
+                    simBorderLoss, contrastBorderLoss = self.rdSampleOnBorder.randomSampleReg(outputs[('disp', scale)], foreGroundMask)
+                    # loss += simBorderLoss * 0.1 + contrastBorderLoss * 0.001
+                    loss += simBorderLoss * 1 + contrastBorderLoss * 0.01
+                    if simBorderLoss > 0:
+                        losses["loss_reg/{}".format("borderSimilar")] = simBorderLoss
+                    if contrastBorderLoss > 0:
+                        losses["loss_reg/{}".format("borderContrast")] = contrastBorderLoss
+                    # self.rdSampleOnBorder
 
-                if self.borderRegress:
+                if self.opt.borderRegression:
                     # foregroundType = [5, 6, 7, 11, 12, 13, 14, 15, 16, 17, 18]
                     # backgroundType = [0, 1, 2, 3, 4, 8, 9, 10]
                     # suppressType = [255]
@@ -680,12 +719,16 @@ class Trainer:
                         combinedMask = torch.cat([foreGroundMask, backGroundMask], dim=1).float()
 
                     # borderRegFig = self.borderRegress.visualize_computeBorder(outputs[('disp', scale)], combinedMask, suppresMask = suppresMask, viewIndex=0)
-                    borderLoss = self.borderRegress.borderRegression(outputs[('disp', scale)], combinedMask, suppresMask = suppresMask)
+                    # borderLoss1, borderLoss2 = self.borderRegress.borderRegression(outputs[('disp', scale)], combinedMask, suppresMask = suppresMask)
+                    # loss += borderLoss1 * 0.1 * self.opt.borderRegScale + borderLoss2 * 0.1 * self.opt.borderRegScale
+                    # if scale == 0:
+                    #     losses["loss_reg/{}".format("borderReg")] = borderLoss1
+                    #     losses["loss_reg/{}".format("borderReg_overflow")] = borderLoss2
+                        # print("borderLoss: %f" % borderLoss1)
+                    borderLoss = self.borderRegress.borderRegression(outputs[('disp', scale)], combinedMask, suppresMask=suppresMask, ssimMask = sourceSSIMMask)
                     loss += borderLoss * 0.1 * self.opt.borderRegScale
                     if scale == 0:
                         losses["loss_reg/{}".format("borderReg")] = borderLoss
-                        # print("borderLoss: %f" % borderLoss)
-
                     # check
                     # viewInd = 0
                     # skyerrFig = self.objReg.visualize_regularizeSky(outputs[('depth', 0, scale)], skyMask, viewInd=viewInd)
@@ -813,6 +856,8 @@ class Trainer:
             " | loss_semantic: {:.5f} | loss_depth: {:.5f} | loss_tot: {:.5f} | time elapsed: {} | time left: {}"
         print(print_string.format(self.epoch, batch_idx, samples_per_sec, loss_semantic, loss_depth, loss_tot,
                                   sec_to_hm_str(time_sofar), sec_to_hm_str(training_time_left)))
+
+
 
     def log(self, mode, inputs, outputs, losses, writeImage = False):
         """Write an event to the tensorboard events file

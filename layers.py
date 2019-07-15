@@ -635,7 +635,7 @@ class SelfOccluMask(nn.Module):
         # vmax = np.percentile(viewdisp_opp, 90)
         # viewdisp_opp = (cm(viewdisp_opp / vmax)* 255).astype(np.uint8)
         # pil.fromarray(viewdisp_opp).show()
-        return pil.fromarray(viewmask), pil.fromarray(viewmask_opp)
+        return pil.fromarray(viewmask), pil.fromarray(viewdisp)
 
 
 class ComputeDispUpLoss(nn.Module):
@@ -995,7 +995,7 @@ class ObjRegularization(nn.Module):
 
 
 class BorderRegression(nn.Module):
-    def __init__(self, toleWid = 3, senseWid = 21):
+    def __init__(self, toleWid = 3, senseWid = 7):
         super(BorderRegression, self).__init__()
         self.toleWid = toleWid
         self.senseWid = senseWid
@@ -1036,22 +1036,49 @@ class BorderRegression(nn.Module):
 
         self.visualizeTole = nn.MaxPool2d(kernel_size=[3, int((self.toleWid + 1) / 2)], stride=1, padding=[1, int((self.toleWid + 1) / 2 / 2)])
         self.visualizeSense = nn.MaxPool2d(kernel_size=[3, int((self.senseWid + 1) / 2)], stride=1, padding=[1, int((self.senseWid + 1) / 2 / 2)])
+        self.expand = torch.nn.MaxPool2d(kernel_size=7, stride=1, padding=3)
 
-    def borderRegression(self, disp, combinedMask, suppresMask = None):
+    def borderRegression(self, disp, combinedMask, suppresMask = None, ssimMask = None):
         dispGrad = torch.abs(self.disp_convx(disp)) + torch.abs(self.disp_convy(disp))
         maskGrad = torch.abs(self.seman_convx(combinedMask)) # + torch.abs(self.seman_convy(combinedMask))
         maskGrad = torch.sum(maskGrad, dim=1, keepdim=True)
         if suppresMask is not None:
             maskSuppress = torch.abs(self.disp_convx(suppresMask)) # + torch.abs(self.disp_convy(suppresMask))
             maskGrad = maskGrad - maskSuppress
-            maskGrad = torch.clamp(maskGrad, min=0)
+        maskGrad = torch.clamp(maskGrad, min = 0, max = 1)
+        ssimMask_expand = self.expand(ssimMask)
+        maskGrad_expand = self.expand(maskGrad)
+        ssimMask_expand = ssimMask_expand * maskGrad_expand
 
         toleLevel = self.toleKernel(dispGrad)
         senseLevel = self.senseKernel(dispGrad)
-        err = torch.tanh(senseLevel - toleLevel) + 1
+        # err = torch.tanh(torch.clamp(senseLevel - toleLevel, min=0)) + 1
+        # diff = senseLevel - toleLevel
+        # err = torch.tanh(torch.clamp(diff, min=0))
+        # err = err * maskGrad
+        # loss1 = torch.mean(err[err > 0.01])
+        err = senseLevel * self.senseWid - toleLevel * self.toleWid
         err = err * maskGrad
-        loss = torch.mean(err)
+        loss = torch.mean(err[err > 0.1])
+
+        viewind = 0
+        cm = plt.get_cmap('magma')
+        viewssimMask_expand = ssimMask_expand[viewind, 0, :, :].detach().cpu().numpy()
+        vmax = np.percentile(viewssimMask_expand, 95)
+        viewssimMask_expand = (cm(viewssimMask_expand / vmax) * 255).astype(np.uint8)
+        pil.fromarray(viewssimMask_expand).show()
+
         return loss
+
+        # Second stage loss
+        # outerArea = senseLevel * self.senseWid - toleLevel * self.toleWid
+        # outerArea = outerArea * (maskGrad * (err < 0.01).float())
+        # loss2 = 0
+        # if torch.sum(outerArea > 0.01) > 1000:
+        #     loss2 = loss2 + torch.mean(outerArea[outerArea > 0.01])
+        # else:
+        #     loss2 = 0
+        # return loss1, loss2
 
     def visualize_computeBorder(self, disp, combinedMask, suppresMask = None, viewIndex = 0):
         # Sample at the boundary between foreground obj and background obj
@@ -1136,10 +1163,14 @@ class BorderRegression(nn.Module):
         # err = torch.tanh((1 - toleLevel / senseLevel)) + 1
         # err = err * maskGrad * disp
         # err = torch.tanh((toleLevel - senseLevel))
-        err = torch.tanh((senseLevel - toleLevel))
+        # err = torch.tanh((senseLevel - toleLevel))
         maskGrad = torch.clamp(maskGrad, min=0, max = 1)
+        # err = err * maskGrad
+        # err = torch.tanh(torch.clamp(senseLevel - toleLevel, min=0))
+        # err = err * maskGrad
+        # loss = torch.mean(err[err > 0.01])
+        err = senseLevel * self.senseWid - toleLevel * self.toleWid
         err = err * maskGrad
-
 
         viewToelLevel = (toleLevel * maskGrad)[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
         vmax = 0.1
@@ -1165,7 +1196,349 @@ class BorderRegression(nn.Module):
         # errVal = err[viewIndex, 0, y-sr : y+sr, x-sr : x+sr].max()
         # diff = pureDiff[viewIndex, 0, y-sr : y+sr, x-sr : x+sr].max()
 
+
+        # outerArea = senseLevel * self.senseWid - toleLevel * self.toleWid
+        # outerArea = outerArea * (maskGrad * (err < 0.01).float())
+        # viewOuterArea = outerArea[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        # vmax = 0.1
+        # viewOuterArea = viewOuterArea / vmax
+        # viewOuterArea = (cm(viewOuterArea)* 255).astype(np.uint8)
+        # pil.fromarray(viewOuterArea).show()
+
+
         errDisp = np.concatenate([viewToelLevel[:,:,0:3], viewSenselLevel[:, :, 0:3], toleOverlay[:, :, 0:3], viewErr[:, :, 0:3]], axis=0)
         # pil.fromarray(errDisp).show()
         return pil.fromarray(errDisp)
+
+
+"""
+class BorderSimilarity(nn.Module):
+    def __init__(self):
+        super(BorderSimilarity, self).__init__()
+        self.init_conv()
+
+    def init_conv(self):
+        weightsx = torch.Tensor([
+                                [-1., 0., 1.],
+                                [-2., 0., 2.],
+                                [-1., 0., 1.]]).unsqueeze(0).unsqueeze(0)
+
+        weightsy = torch.Tensor([
+                                [1., 2., 1.],
+                                [0., 0., 0.],
+                                [-1., -2., -1.]]).unsqueeze(0).unsqueeze(0)
+        self.disp_convx = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+        self.disp_convy = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+
+        self.disp_convx.weight = nn.Parameter(weightsx,requires_grad=False)
+        self.disp_convy.weight = nn.Parameter(weightsy,requires_grad=False)
+
+
+        self.seman_convx = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+        self.seman_convy = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+
+        self.seman_convx.weight = nn.Parameter(weightsx,requires_grad=False)
+        self.seman_convy.weight = nn.Parameter(weightsy,requires_grad=False)
+
+    def visualize_borderSimilarity(self, disp, foredgroundMask, suppresMask = None, viewIndex = 0):
+        dispGrad = torch.cat([self.disp_convx(disp), self.disp_convy(disp)], dim=1)
+        # dispGrad = torch.abs(self.disp_convx(disp)) + torch.abs(self.disp_convy(disp))
+        maskGrad = torch.cat([self.seman_convx(foredgroundMask), self.seman_convy(foredgroundMask)], dim=1)
+        # maskGrad = torch.abs(self.seman_convx(combinedMask)) + torch.abs(self.seman_convy(combinedMask))
+        # maskGrad = torch.sum(maskGrad, dim=1, keepdim=True)
+        if suppresMask is not None:
+            maskSuppress = torch.abs(self.disp_convx(suppresMask)) + torch.abs(self.disp_convy(suppresMask))
+            # maskSuppress = torch.masked_fill_(maskSuppress)
+            maskSuppress = maskSuppress.masked_fill_(maskSuppress > 1e-1, 1)
+            maskSuppress = maskSuppress.repeat([1,2,1,1])
+            maskGrad = maskGrad * maskSuppress
+
+        viewForeGroundMask = foredgroundMask[viewIndex, 0, :, :].detach().cpu().numpy()
+        viewForeGroundMask = (viewForeGroundMask * 255).astype(np.uint8)
+        pil.fromarray(viewForeGroundMask).show()
+
+        # viewBackGroundMask = combinedMask[viewIndex, 1, :, :].detach().cpu().numpy()
+        # viewBackGroundMask = (viewBackGroundMask * 255).astype(np.uint8)
+        # pil.fromarray(viewBackGroundMask).show()
+
+        cm = plt.get_cmap('magma')
+        viewDispGrad = dispGrad[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = np.percentile(viewDispGrad, 95)
+        viewDispGrad = (cm(viewDispGrad / vmax)* 255).astype(np.uint8)
+        # pil.fromarray(viewDispGrad).show()
+
+        viewDisp = disp[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = np.percentile(viewDisp, 90)
+        viewDisp = (cm(viewDisp / vmax)* 255).astype(np.uint8)
+        # pil.fromarray(viewDisp).show()
+
+        viewMaskGrad = torch.sum(torch.abs(maskGrad), dim=1, keepdim=True)
+        viewMaskGrad = viewMaskGrad[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = 0.1
+        viewMaskGrad = (cm(viewMaskGrad / vmax)* 255).astype(np.uint8)
+        pil.fromarray(viewMaskGrad).show()
+
+
+        viewMaskSuppress = maskSuppress[viewIndex, 0, :, :].detach().cpu().numpy()
+        vmax = 1
+        viewMaskSuppress = (cm(viewMaskSuppress / vmax)* 255).astype(np.uint8)
+        pil.fromarray(viewMaskSuppress).show()
+
+        viewBackGroundMask_red = np.stack([viewBackGroundMask, np.zeros_like(viewBackGroundMask), np.zeros_like(viewBackGroundMask)], axis=2)
+        viewMaskGradObj = (viewBackGroundMask_red * 0.7 + viewMaskGrad[:,:,0:3] * 0.3).astype(np.uint8)
+        # pil.fromarray(viewMaskGradObj).resize([viewMaskGradObj.shape[1] * 2, viewMaskGradObj.shape[0] * 2]).show()
+
+        cmk = plt.get_cmap('hot')
+        maskGrad_tole = self.visualizeTole(maskGrad)
+        maskGrad_tole = torch.clamp(maskGrad_tole, min=0, max=1)
+        viewMaskGradTole = maskGrad_tole[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = np.percentile(viewMaskGradTole, 95)
+        viewMaskGradTole = (cmk(viewMaskGradTole / vmax)* 255).astype(np.uint8)
+        # pil.fromarray(viewMaskGradTole).show()
+
+        toleOverlay = (viewDispGrad[:,:,0:3] * 0.7 + viewMaskGradTole[:, :-1, 0:3] * 0.3).astype(np.uint8)
+        # pil.fromarray(toleOverlay).show()
+
+
+        maskGrad_sense = self.visualizeSense(maskGrad)
+        maskGrad_sense = torch.clamp(maskGrad_sense, min = 0, max = 1)
+        viewMaskGradSense = maskGrad_sense[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = np.percentile(viewMaskGradSense, 95)
+        viewMaskGradSense = (cmk(viewMaskGradSense / vmax)* 255).astype(np.uint8)
+        # pil.fromarray(viewMaskGradSense).show()
+
+        senseOverlay = (viewDispGrad[:,:,0:3] * 0.5 + viewMaskGradSense[:, :, 0:3] * 0.5).astype(np.uint8)
+        # pil.fromarray(senseOverlay).show()
+
+
+        dispInTole = maskGrad_tole[:,:,:,:-1] * dispGrad
+        viewToleRe = dispInTole[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = 0.1
+        viewToleRe = (cm(viewToleRe / vmax)* 255).astype(np.uint8)
+        # pil.fromarray(viewToleRe).show()
+
+        dispInSense = maskGrad_sense[:,:,:,:] * dispGrad
+        viewSenseRe = dispInSense[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = 0.1
+        viewSenseRe = (cm(viewSenseRe / vmax)* 255).astype(np.uint8)
+        # pil.fromarray(viewSenseRe).show()
+
+
+
+        toleLevel = self.toleKernel(dispGrad)
+        senseLevel = self.senseKernel(dispGrad)
+        # err = torch.tanh((1 - toleLevel / senseLevel)) + 1
+        # err = err * maskGrad * disp
+        # err = torch.tanh((toleLevel - senseLevel))
+        # err = torch.tanh((senseLevel - toleLevel))
+        maskGrad = torch.clamp(maskGrad, min=0, max = 1)
+        # err = err * maskGrad
+        # err = torch.tanh(torch.clamp(senseLevel - toleLevel, min=0))
+        # err = err * maskGrad
+        # loss = torch.mean(err[err > 0.01])
+        err = senseLevel * self.senseWid - toleLevel * self.toleWid
+        err = err * maskGrad
+
+        viewToelLevel = (toleLevel * maskGrad)[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = 0.1
+        viewToelLevel = (cm(viewToelLevel / vmax)* 255).astype(np.uint8)
+        # pil.fromarray(viewToelLevel).show()
+
+        viewSenselLevel = (senseLevel * maskGrad)[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = 0.1
+        viewSenselLevel = (cm(viewSenselLevel / vmax)* 255).astype(np.uint8)
+        # pil.fromarray(viewSenselLevel).show()
+
+
+        viewErr = err[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = 0.1
+        viewErr = viewErr / vmax
+        viewErr = (cm(viewErr)* 255).astype(np.uint8)
+        # pil.fromarray(viewErr).show()
+        # check
+        # plt.imshow(viewErr)
+        # x = 402
+        # y = 107
+        # sr = 10
+        # errVal = err[viewIndex, 0, y-sr : y+sr, x-sr : x+sr].max()
+        # diff = pureDiff[viewIndex, 0, y-sr : y+sr, x-sr : x+sr].max()
+
+
+        # outerArea = senseLevel * self.senseWid - toleLevel * self.toleWid
+        # outerArea = outerArea * (maskGrad * (err < 0.01).float())
+        # viewOuterArea = outerArea[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        # vmax = 0.1
+        # viewOuterArea = viewOuterArea / vmax
+        # viewOuterArea = (cm(viewOuterArea)* 255).astype(np.uint8)
+        # pil.fromarray(viewOuterArea).show()
+
+
+        errDisp = np.concatenate([viewToelLevel[:,:,0:3], viewSenselLevel[:, :, 0:3], toleOverlay[:, :, 0:3], viewErr[:, :, 0:3]], axis=0)
+        # pil.fromarray(errDisp).show()
+        return pil.fromarray(errDisp)
+
+"""
+
+class RandomSampleNeighbourPts(nn.Module):
+    def __init__(self, batchNum = 10):
+        super(RandomSampleNeighbourPts, self).__init__()
+        self.wdSize = 5 # Generate points within a window of 5 by 5
+        self.ptsNum = 50000 # Each image generate 50000 number of points
+        self.batchNum = batchNum
+        self.init_conv()
+        self.channelInd = list()
+        for i in range(self.batchNum):
+            self.channelInd.append(torch.ones(self.ptsNum) * i)
+        self.channelInd = torch.cat(self.channelInd, dim=0).long().cuda()
+
+
+    def init_conv(self):
+        weightsx = torch.Tensor([
+                                [-1., 0., 1.],
+                                [-2., 0., 2.],
+                                [-1., 0., 1.]]).unsqueeze(0).unsqueeze(0)
+
+        weightsy = torch.Tensor([
+                                [1., 2., 1.],
+                                [0., 0., 0.],
+                                [-1., -2., -1.]]).unsqueeze(0).unsqueeze(0)
+
+        self.seman_convx = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+        self.seman_convy = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+
+
+        self.disp_convx = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+        self.disp_convy = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+
+        self.disp_convx.weight = nn.Parameter(weightsx,requires_grad=False)
+        self.disp_convy.weight = nn.Parameter(weightsy,requires_grad=False)
+
+        self.seman_convx.weight = nn.Parameter(weightsx,requires_grad=False)
+        self.seman_convy.weight = nn.Parameter(weightsy,requires_grad=False)
+        self.expand = torch.nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
+
+
+    def randomSampleReg(self, disp, foredgroundMask):
+        maskGrad = torch.abs(self.seman_convx(foredgroundMask)) + torch.abs(self.seman_convy(foredgroundMask))
+        # if suppresMask is not None:
+        #     maskSuppress = torch.abs(self.disp_convx(suppresMask)) + torch.abs(self.disp_convy(suppresMask))
+        #     maskSuppress = maskSuppress.masked_fill_(maskSuppress > 1e-1, 1)
+        #     maskGrad = maskGrad * maskSuppress
+        #
+        maskGrad = self.expand(maskGrad)
+
+        height = disp.shape[2]
+        width = disp.shape[3]
+
+        centerx = torch.LongTensor(self.ptsNum * self.batchNum).random_(self.wdSize, width - self.wdSize)
+        centery = torch.LongTensor(self.ptsNum * self.batchNum).random_(self.wdSize, height - self.wdSize)
+
+        bx = torch.LongTensor(self.ptsNum * self.batchNum).random_(-self.wdSize, self.wdSize + 1)
+        by = torch.LongTensor(self.ptsNum * self.batchNum).random_(-self.wdSize, self.wdSize + 1)
+
+        pairedx = centerx + bx
+        pairedy = centery + by
+
+        onBorderSelection = maskGrad[self.channelInd, 0, centery, centerx] > 1e-1
+        centery = centery[onBorderSelection]
+        centerx = centerx[onBorderSelection]
+        pairedx = pairedx[onBorderSelection]
+        pairedy = pairedy[onBorderSelection]
+
+
+        channelInd = self.channelInd[onBorderSelection]
+        anchorType = foredgroundMask[channelInd, 0, centery, centerx]
+        pairType = foredgroundMask[channelInd, 0, pairedy, pairedx]
+        anchorDisp = disp[channelInd, 0, centery, centerx]
+        pairDisp = disp[channelInd, 0, pairedy, pairedx]
+
+        smilarComp = anchorType == pairType
+        contrastComp = 1 - smilarComp
+        contrastCompAnchorPos = contrastComp * (anchorType == 1)
+        contrastCompPairPos = contrastComp * (pairType == 1)
+
+
+        if torch.sum(smilarComp) == 0:
+            similarLoss = 0
+        else:
+            similarLoss = torch.mean(torch.abs(anchorDisp[smilarComp] - pairDisp[smilarComp]))
+        if torch.sum(contrastCompPairPos) == 0 or torch.sum(contrastCompAnchorPos) == 0:
+            contrastLoss = 0
+        else:
+            contrastLoss = torch.mean(torch.exp(anchorDisp[contrastCompPairPos] - pairDisp[contrastCompPairPos])) \
+                            + torch.mean(torch.exp(pairDisp[contrastCompAnchorPos] - anchorDisp[contrastCompAnchorPos]))
+        return similarLoss, contrastLoss
+    def visualize_randomSample(self, disp, foredgroundMask, suppresMask = None, viewIndex = 0):
+        maskGrad = torch.abs(self.seman_convx(foredgroundMask)) + torch.abs(self.seman_convy(foredgroundMask))
+        # if suppresMask is not None:
+        #     maskSuppress = torch.abs(self.disp_convx(suppresMask)) + torch.abs(self.disp_convy(suppresMask))
+        #     maskSuppress = maskSuppress.masked_fill_(maskSuppress > 1e-1, 1)
+        #     maskGrad = maskGrad * maskSuppress
+        #
+        maskGrad = self.expand(maskGrad)
+
+        height = disp.shape[2]
+        width = disp.shape[3]
+
+        centerx = torch.LongTensor(self.ptsNum * self.batchNum).random_(self.wdSize, width - self.wdSize)
+        centery = torch.LongTensor(self.ptsNum * self.batchNum).random_(self.wdSize, height - self.wdSize)
+
+        bx = torch.LongTensor(self.ptsNum * self.batchNum).random_(-self.wdSize, self.wdSize + 1)
+        by = torch.LongTensor(self.ptsNum * self.batchNum).random_(-self.wdSize, self.wdSize + 1)
+
+        pairedx = centerx + bx
+        pairedy = centery + by
+
+        onBorderSelection = maskGrad[self.channelInd, 0, centery, centerx] > 1e-1
+        centery = centery[onBorderSelection]
+        centerx = centerx[onBorderSelection]
+        pairedx = pairedx[onBorderSelection]
+        pairedy = pairedy[onBorderSelection]
+
+
+        channelInd = self.channelInd[onBorderSelection]
+        anchorType = foredgroundMask[channelInd, 0, centery, centerx]
+        pairType = foredgroundMask[channelInd, 0, pairedy, pairedx]
+        anchorDisp = disp[channelInd, 0, centery, centerx]
+        pairDisp = disp[channelInd, 0, pairedy, pairedx]
+
+        smilarComp = anchorType == pairType
+        contrastComp = 1 - smilarComp
+        contrastCompAnchorPos = contrastComp * (anchorType == 1)
+        contrastCompPairPos = contrastComp * (pairType == 1)
+
+        similarLoss = torch.mean(torch.abs(anchorDisp[smilarComp] - pairDisp[smilarComp]))
+        contrastLoss = torch.mean(torch.exp(anchorDisp[contrastCompPairPos] - pairDisp[contrastCompPairPos])) \
+                        + torch.mean(torch.exp(pairDisp[contrastCompAnchorPos] - anchorDisp[contrastCompAnchorPos]))
+
+
+        cm = plt.get_cmap('magma')
+        viewMaskGrad = maskGrad[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = np.percentile(viewMaskGrad, 99)
+        viewMaskGrad = (cm(viewMaskGrad / vmax) * 255).astype(np.uint8)
+        pil.fromarray(viewMaskGrad).show()
+
+        viewDisp = disp[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = np.percentile(viewDisp, 99)
+        viewDisp = (cm(viewDisp / vmax) * 255).astype(np.uint8)
+        pil.fromarray(viewDisp).show()
+
+        viewForeMask = foredgroundMask[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = np.percentile(viewForeMask, 99)
+        viewForeMask = (cm(viewForeMask / vmax) * 255).astype(np.uint8)
+        pil.fromarray(viewForeMask).show()
+
+
+        # View the point pairs within same objects cat
+        plt.imshow(viewForeMask[:,:,0:3])
+        curChannelPosPts = (channelInd == viewIndex) * smilarComp
+        plt.scatter(centerx[curChannelPosPts][::10], centery[curChannelPosPts][::10], c = 'r', s = 0.5)
+        plt.scatter(pairedx[curChannelPosPts][::10], pairedy[curChannelPosPts][::10], c='g', s=0.5)
+        plt.close()
+
+
+
+
+
+
 

@@ -267,7 +267,9 @@ def evaluate(opt):
     viewDispUp = True
     viewSmooth = True
     viewMulReg = True
-    viewBorderRegress = True
+    viewBorderRegress = False
+    viewBorderSimilarity = False
+    viewRandomSample = True
     height = 256
     width = 512
     tensor23dPts = Tensor23dPts()
@@ -307,6 +309,13 @@ def evaluate(opt):
         borderRegress = BorderRegression()
         borderRegress.cuda()
 
+    if viewRandomSample:
+        rdSampleOnBorder = RandomSampleNeighbourPts()
+        rdSampleOnBorder.cuda()
+
+    # if viewBorderSimilarity:
+    #     borderSim = BorderSimilarity()
+    #     borderSim.cuda()
     with torch.no_grad():
         for idx, inputs in enumerate(dataloader):
             for key, ipt in inputs.items():
@@ -427,11 +436,56 @@ def evaluate(opt):
                         suppresMask = suppresMask.float()
                         combinedMask = torch.cat([foreGroundMask, backGroundMask], dim=1).float()
 
-                    borderRegFig = borderRegress.visualize_computeBorder(dispMap, combinedMask, suppresMask = suppresMask, viewIndex=index)
+                    # borderRegFig = borderRegress.visualize_computeBorder(dispMap, combinedMask, suppresMask = suppresMask, viewIndex=index)
+                    borderRegFig = None
 
                 else:
                     borderRegFig = None
 
+                # if viewBorderSimilarity:
+                #     foregroundType = [5, 6, 7, 11, 12, 13, 14, 15, 16, 17,
+                #                       18]  # pole, traffic light, traffic sign, person, rider, car, truck, bus, train, motorcycle, bicycle
+                #     backgroundType = [0, 1, 2, 3, 4, 8, 9,
+                #                       10]  # road, sidewalk, building, wall, fence, vegetation, terrain, sky
+                #     suppressType = [255]  # Suppress no label lines
+                #     foreGroundMask = torch.ones(dispMap.shape).cuda().byte()
+                #     backGroundMask = torch.ones(dispMap.shape).cuda().byte()
+                #     suppresMask = torch.ones(dispMap.shape).cuda().byte()
+                #
+                #     with torch.no_grad():
+                #         for m in foregroundType:
+                #             foreGroundMask = foreGroundMask * (inputs['seman_gt'] != m)
+                #         foreGroundMask = 1 - foreGroundMask
+                #         for m in backgroundType:
+                #             backGroundMask = backGroundMask * (inputs['seman_gt'] != m)
+                #         backGroundMask = 1 - backGroundMask
+                #         for m in suppressType:
+                #             suppresMask = suppresMask * (inputs['seman_gt'] != m)
+                #         suppresMask = 1 - suppresMask
+                #         suppresMask = suppresMask.float()
+                #         combinedMask = torch.cat([foreGroundMask, backGroundMask], dim=1).float()
+                #
+                #     borderSimFig = borderSim.visualize_borderSimilarity(dispMap, foreGroundMask.float(), suppresMask = suppresMask, viewIndex=index)
+
+                if viewRandomSample:
+                    foregroundType = [5, 6, 7, 11, 12, 13, 14, 15, 16, 17, 18] # pole, traffic light, traffic sign, person, rider, car, truck, bus, train, motorcycle, bicycle
+                    backgroundType = [0, 1, 2, 3, 4, 8, 9, 10] # road, sidewalk, building, wall, fence, vegetation, terrain, sky
+                    suppressType = [255] # Suppress no label lines
+                    foreGroundMask = torch.ones(dispMap.shape).cuda().byte()
+                    backGroundMask = torch.ones(dispMap.shape).cuda().byte()
+                    suppresMask = torch.ones(dispMap.shape).cuda().byte()
+
+                    with torch.no_grad():
+                        for m in foregroundType:
+                            foreGroundMask = foreGroundMask * (inputs['seman_gt'] != m)
+                        foreGroundMask = 1 - foreGroundMask
+                        for m in suppressType:
+                            suppresMask = suppresMask * (inputs['seman_gt'] != m)
+                        suppresMask = 1 - suppresMask
+                        suppresMask = suppresMask.float()
+                        foreGroundMask = foreGroundMask.float()
+
+                    rdSampleOnBorder.visualize_randomSample(dispMap, foreGroundMask, suppresMask, viewIndex=index)
 
 
                 if viewEdgeMerge:
