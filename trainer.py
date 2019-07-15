@@ -690,7 +690,7 @@ class Trainer:
                         foreGroundMask = foreGroundMask.float()
                     simBorderLoss, contrastBorderLoss = self.rdSampleOnBorder.randomSampleReg(outputs[('disp', scale)], foreGroundMask)
                     # loss += simBorderLoss * 0.1 + contrastBorderLoss * 0.001
-                    loss += simBorderLoss * 0.1 * self.opt.borderSimScale + contrastBorderLoss * 0.001 * self.opt.borderSimScale
+                    loss += simBorderLoss * 0.3 * self.opt.borderSimScale + contrastBorderLoss * 0.2 * self.opt.borderSimScale
                     if simBorderLoss > 0:
                         losses["loss_reg/{}".format("borderSimilar")] = simBorderLoss
                     if contrastBorderLoss > 0:
