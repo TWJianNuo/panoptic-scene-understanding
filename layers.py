@@ -1465,8 +1465,9 @@ class RandomSampleNeighbourPts(nn.Module):
         if torch.sum(contrastCompPairPos) == 0 or torch.sum(contrastCompAnchorPos) == 0:
             contrastLoss = 0
         else:
-            contrastLoss = torch.mean(torch.exp(anchorDisp[contrastCompPairPos] - pairDisp[contrastCompPairPos])) \
-                            + torch.mean(torch.exp(pairDisp[contrastCompAnchorPos] - anchorDisp[contrastCompAnchorPos]))
+            contrastLoss = torch.mean(torch.tanh(anchorDisp[contrastCompPairPos] - pairDisp[contrastCompPairPos])) \
+                            + torch.mean(torch.tanh(pairDisp[contrastCompAnchorPos] - anchorDisp[contrastCompAnchorPos]))
+            contrastLoss = contrastLoss / 2 + 1
         return similarLoss, contrastLoss
     def visualize_randomSample(self, disp, foredgroundMask, suppresMask = None, viewIndex = 0):
         maskGrad = torch.abs(self.seman_convx(foredgroundMask)) + torch.abs(self.seman_convy(foredgroundMask))
