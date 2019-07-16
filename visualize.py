@@ -270,6 +270,7 @@ def evaluate(opt):
     viewBorderRegress = False
     viewBorderSimilarity = False
     viewRandomSample = True
+    viewSemanReg = True
     height = 256
     width = 512
     tensor23dPts = Tensor23dPts()
@@ -362,6 +363,16 @@ def evaluate(opt):
                     fig_seman = tensor2semantic(inputs['seman_gt'], ind=index, isGt=True)
                 else:
                     fig_seman = tensor2semantic(outputs[('seman', 0)], ind=index)
+
+                if viewSemanReg:
+                    foregroundType = [5, 6, 7, 11, 12, 13, 14, 15, 16, 17, 18]  # pole, traffic light, traffic sign, person, rider, car, truck, bus, train, motorcycle, bicycle
+                    softmaxedSeman = F.softmax(outputs[('seman', 0)], dim=1)
+                    foreObjProb = torch.sum(softmaxedSeman[:,foregroundType,:,:], dim=1, keepdim=True)
+
+                    cm = plt.get_cmap('magma')
+                    viewFore = foreObjProb[index, :, :, :].squeeze(0).detach().cpu().numpy()
+                    viewFore = (cm(viewFore) * 255).astype(np.uint8)
+                    pil.fromarray(viewFore).show()
 
                 fig_rgb = tensor2rgb(inputs[('color', 0, 0)], ind=index)
                 fig_disp = tensor2disp(outputs[('disp', 0)], ind=index)
