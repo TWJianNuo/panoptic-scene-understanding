@@ -1465,11 +1465,14 @@ class RandomSampleNeighbourPts(nn.Module):
 
         posMean = (torch.sum(objDisp * objType, dim=1, keepdim=True) / posNum)
         negMean = (torch.sum(objDisp * (1-objType), dim=1, keepdim=True) / negNum)
-        lossSimPos = torch.mean(torch.sqrt(torch.sum((objDisp - posMean)**2 * objType, dim=1, keepdim=True) / posNum))
-        lossSimNeg = torch.mean(torch.sqrt(torch.sum((objDisp - negMean)**2 * (1-objType), dim=1, keepdim=True) / negNum))
+        lossSimPos = torch.mean(torch.sqrt(torch.sum((objDisp - posMean)**2 * objType, dim=1, keepdim=True) / posNum + 1e-14))
+        lossSimNeg = torch.mean(torch.sqrt(torch.sum((objDisp - negMean)**2 * (1-objType), dim=1, keepdim=True) / negNum + 1e-14))
         lossSim = (lossSimPos + lossSimNeg) / 2
         lossContrast = torch.mean(negMean - posMean) + 0.02
-        assert not torch.isnan(lossContrast) and not torch.isnan(lossSim), "nan occur"
+        # assert not torch.isnan(lossContrast) and not torch.isnan(lossSim), "nan occur"
+        # if torch.isnan(lossContrast) or torch.isnan(lossSim):
+        #     lossContrast = 0
+        #     lossSim = 0
         return lossSim, lossContrast
     def visualize_randomSample(self, disp, foredgroundMask, suppresMask = None, viewIndex = 0):
         # maskGrad = torch.abs(self.seman_convx(foredgroundMask)) + torch.abs(self.seman_convy(foredgroundMask))
