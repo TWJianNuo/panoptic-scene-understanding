@@ -161,7 +161,7 @@ class MonodepthOptions:
         self.parser.add_argument("--mulRegScale",
                                  type=float,
                                  help="change regularization term scale",
-                                 default=1.0)
+                                 default=1e-1)
         self.parser.add_argument("--borderRegression",
                                  help="if set, experiment on toy problem",
                                  action="store_true")
@@ -176,6 +176,10 @@ class MonodepthOptions:
                                  help="if set, apply border similarity loss",
                                  action="store_true")
         self.parser.add_argument("--borderSimScale",
+                                 type=float,
+                                 help="if set, apply border similarity loss",
+                                 default=1.0)
+        self.parser.add_argument("--borderSmoothScale",
                                  type=float,
                                  help="if set, apply border similarity loss",
                                  default=1.0)

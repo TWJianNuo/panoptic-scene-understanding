@@ -284,7 +284,8 @@ class Trainer:
 
                 if "loss_semantic" in losses:
                     loss_seman = losses["loss_semantic"].cpu().data
-                    self.compute_semantic_losses(inputs, outputs, losses)
+                    with torch.no_grad():
+                        self.compute_semantic_losses(inputs, outputs, losses)
                 else:
                     loss_seman = -1
 
@@ -512,6 +513,7 @@ class Trainer:
             if self.opt.selfocclu:
                 # expand = torch.nn.MaxPool2d(kernel_size=5, padding=2, stride=1).cuda()
                 sourceSSIMMask = self.selfOccluMask(outputs[('disp', source_scale)], inputs['stereo_T'][:,0,3])
+                outputs['ssimMask'] = sourceSSIMMask
                 # sourceSSIMMask = expand(sourceSSIMMask)
                 # Check
                 # viewind = 0
@@ -690,7 +692,8 @@ class Trainer:
                         foreGroundMask = foreGroundMask.float()
                     simBorderLoss, contrastBorderLoss = self.rdSampleOnBorder.randomSampleReg(outputs[('disp', scale)], foreGroundMask)
                     # loss += simBorderLoss * 0.1 + contrastBorderLoss * 0.001
-                    loss += simBorderLoss * 0.7 * self.opt.borderSimScale + contrastBorderLoss * 0.2 * self.opt.borderSimScale
+                    # loss += simBorderLoss * 0.1 * self.opt.borderSimScale + contrastBorderLoss * 0.08 * self.opt.borderSimScale
+                    loss += simBorderLoss * 0.05 * self.opt.borderSimScale * self.opt.borderSmoothScale + contrastBorderLoss * 0.08 * self.opt.borderSimScale
                     if simBorderLoss != 0:
                         losses["loss_reg/{}".format("borderSimilar")] = simBorderLoss
                     if contrastBorderLoss != 0:
@@ -872,8 +875,19 @@ class Trainer:
             dispimg = outputs[("disp", 0)][0,0,:,:].cpu().numpy()
             dispimg = dispimg / 0.1
             viewmask = (cm(dispimg) * 255).astype(np.uint8)
-            pil.fromarray(viewmask).save("/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/trianReCompare/" + str(self.step) + ".png")
+            # pil.fromarray(viewmask).save("/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/trianReCompare/" + str(self.step) + ".png")
 
+            slice = inputs['seman_gt'][0, 0, :, :].cpu().numpy()
+            seman = visualize_semantic(slice)
+            overlay = (np.array(viewmask[:,:,0:3]) * 0.7 + 0.3 * np.array(seman)).astype(np.uint8)
+
+            dispSuppressed = (outputs[("disp", 0)] * (1 - outputs['ssimMask']))[0,0,:,:].cpu().numpy()
+            dispSuppressed = dispSuppressed / 0.1
+            viewSupmask = (cm(dispSuppressed) * 255).astype(np.uint8)
+            supoverlay = (np.array(viewSupmask[:, :, 0:3]) * 0.7 + 0.3 * np.array(seman)).astype(np.uint8)
+            overlay = np.concatenate([overlay, viewmask[:, :, 0:3], viewSupmask[:, :, 0:3], supoverlay[:,:,0:3]], axis=0)
+
+            pil.fromarray(overlay).save("/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/trianReCompare/" + str(self.step) + ".png")
             # for j in range(min(4, self.opt.batch_size)):
             #     for s in self.opt.scales:
             #         for frame_id in self.opt.frame_ids:

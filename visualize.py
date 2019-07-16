@@ -318,6 +318,8 @@ def evaluate(opt):
     #     borderSim.cuda()
     with torch.no_grad():
         for idx, inputs in enumerate(dataloader):
+            # if idx == 12:
+            #     a = 1
             for key, ipt in inputs.items():
                 if not(key == 'height' or key == 'width' or key == 'tag' or key == 'cts_meta'):
                     inputs[key] = ipt.to(torch.device("cuda"))
