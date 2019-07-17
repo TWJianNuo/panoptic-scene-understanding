@@ -695,7 +695,7 @@ class Trainer:
                     # loss += simBorderLoss * 0.1 * self.opt.borderSimScale + contrastBorderLoss * 0.08 * self.opt.borderSimScale
                     # loss += simBorderLoss * 0.05 * self.opt.borderSimScale * self.opt.borderSmoothScale + contrastBorderLoss * 0.08 * self.opt.borderSimScale * self.opt.borderContrastScale
                     # loss += simBorderLoss * 0.7 * self.opt.borderSimScale + contrastBorderLoss * 0.2 * self.opt.borderSimScale
-                    loss += simBorderLoss * 0.01 * self.opt.borderSimScale + contrastBorderLoss * 0.2 * self.opt.borderSimScale
+                    loss += simBorderLoss * 1 * self.opt.borderSimScale * self.opt.borderSmoothScale + contrastBorderLoss * 0.2 * self.opt.borderSimScale
                     if simBorderLoss != 0:
                         losses["loss_reg/{}".format("borderSimilar")] = simBorderLoss
                     if contrastBorderLoss != 0:

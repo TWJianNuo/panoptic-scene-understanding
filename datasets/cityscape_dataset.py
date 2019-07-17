@@ -123,7 +123,7 @@ class CITYSCAPEDataset(SingleDataset):
         # if ck not in self.ctsImg_sz_rec.keys():
         #     self.ctsImg_sz_rec[ck] = re_size
         return K
-    def get_camK(self, folder):
+    def get_camK(self, folder, frame_index):
         intrParam, extrParam = self.get_intrin_extrin_param(folder)
         xscale = self.width / self.full_res_shape[0]
         yscale = self.height / self.full_res_shape[1]
@@ -132,7 +132,7 @@ class CITYSCAPEDataset(SingleDataset):
         intrinsic, extrinsic = self.process_InExParam2Matr(intrParam, extrParam, xscale=xscale, yscale=yscale)
         camK = (intrinsic @ extrinsic).astype(np.float32)
         invcamK = np.linalg.inv(camK).astype(np.float32)
-        return camK, invcamK, intrinsic.astype(np.float32), extrinsic.astype(np.float32)
+        return camK, invcamK, intrinsic.astype(np.float32), extrinsic.astype(np.float32), None
     def get_rescaleFac(self, folder):
         cts_focal, cts_baseline = self.get_cityscape_cam_param(folder)
         kitti_baseline = 0.54

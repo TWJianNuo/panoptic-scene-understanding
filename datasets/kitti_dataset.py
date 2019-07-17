@@ -13,6 +13,7 @@ import PIL.Image as pil
 
 from kitti_utils import generate_depth_map
 from .SingleDataset import SingleDataset
+from kitti_utils import read_calib_file, load_velodyne_points
 
 
 class KITTIDataset(SingleDataset):
@@ -71,8 +72,48 @@ class KITTIDataset(SingleDataset):
     def check_cityscape_meta(self):
         return False
 
-    def get_camK(self, folder):
-        return np.eye(4), np.eye(4), np.eye(4), np.eye(4)
+    def get_camK(self, folder, frame_index):
+        calib_path = os.path.join(self.data_path, folder.split("/")[0])
+
+        velo_filename = os.path.join(
+            self.data_path,
+            folder,
+            "velodyne_points/data/{:010d}.bin".format(int(frame_index)))
+
+        cam2cam = read_calib_file(os.path.join(calib_path, 'calib_cam_to_cam.txt'))
+        velo2cam = read_calib_file(os.path.join(calib_path, 'calib_velo_to_cam.txt'))
+        velo2cam = np.hstack((velo2cam['R'].reshape(3, 3), velo2cam['T'][..., np.newaxis]))
+        velo2cam = np.vstack((velo2cam, np.array([0, 0, 0, 1.0])))
+
+        # get image shape
+        im_shape = cam2cam["S_rect_02"][::-1].astype(np.int32)
+
+        # compute projection matrix velodyne->image plane
+        R_cam2rect = np.eye(4)
+        R_cam2rect[:3, :3] = cam2cam['R_rect_00'].reshape(3, 3)
+        P_rect = cam2cam['P_rect_0' + str(2)].reshape(3, 4)
+        P_velo2im = np.dot(np.dot(P_rect, R_cam2rect), velo2cam)
+
+        camK = np.eye(4)
+        camK[0:3,0:4] = P_velo2im
+        invcamK = np.linalg.inv(camK)
+
+        realIn = np.eye(4)
+        realIn[0:3,0:4] = P_rect
+
+        realEx = R_cam2rect @ velo2cam
+
+        if not self.is_train:
+            velo = load_velodyne_points(velo_filename)
+            velo = velo[velo[:, 0] >= 0, :]
+            np.random.shuffle(velo)
+            velo = velo[0 : 10000, :]
+        else:
+            velo = None
+        # Check
+        # P_rect @ R_cam2rect @ velo2cam - (realIn @ realEx)[0:3,:]
+        # camK - (realIn @ realEx)
+        return camK, invcamK, realIn, realEx, velo
 
 class KITTIRAWDataset(KITTIDataset):
     """KITTI dataset which loads the original velodyne depth maps for ground truth

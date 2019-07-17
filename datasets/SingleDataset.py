@@ -249,12 +249,14 @@ class SingleDataset(data.Dataset):
         inputs["height"] = self.height # final image height
         inputs["width"] = self.width # final image width
         inputs["tag"] = self.tag # final image tags
-        camK, invcamK, realIn, realEx = self.get_camK(folder)
+        camK, invcamK, realIn, realEx, velo = self.get_camK(folder, frame_index)
 
         inputs["camK"] = camK # Intrinsic by extrinsic
         inputs["invcamK"] = invcamK # inverse of Intrinsic by extrinsic
         inputs["realIn"] = realIn # Intrinsic
         inputs["realEx"] = realEx # Extrinsic, possibly edited to form in accordance with kitti
+        if velo is not None:
+            inputs["velo"] = velo
         return inputs
 
     def get_color(self, folder, frame_index, side, do_flip):
@@ -284,5 +286,5 @@ class SingleDataset(data.Dataset):
     def get_cityscape_meta(self, folder):
         raise NotImplementedError
 
-    def get_camK(self, folder):
+    def get_camK(self, folder, frame_index):
         raise NotImplementedError
