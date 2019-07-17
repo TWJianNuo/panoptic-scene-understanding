@@ -183,6 +183,10 @@ class MonodepthOptions:
                                  type=float,
                                  help="if set, apply border similarity loss",
                                  default=1.0)
+        self.parser.add_argument("--borderContrastScale",
+                                 type=float,
+                                 help="if set, apply border similarity loss",
+                                 default=1.0)
         # SYSTEM options
         self.parser.add_argument("--no_cuda",
                                  help="if set disables CUDA",

@@ -1392,7 +1392,7 @@ class RandomSampleNeighbourPts(nn.Module):
         for i in range(self.batchNum):
             self.channelInd.append(torch.ones(self.ptsNum) * i)
         self.channelInd = torch.cat(self.channelInd, dim=0).long().cuda()
-
+        self.zeroArea = torch.Tensor([0, 1, 2, 3, -1, -2, -3, -4]).long()
 
     def init_conv(self):
         weightsx = torch.Tensor([
@@ -1427,6 +1427,8 @@ class RandomSampleNeighbourPts(nn.Module):
         maskGrad = torch.abs(self.seman_convx(foredgroundMask))
         maskGrad = self.expand(maskGrad) * (disp > 7e-3).float()
         maskGrad = torch.clamp(maskGrad, min = 3) - 3
+        maskGrad[:,:,self.zeroArea,:] = 0
+        maskGrad[:,:,:,self.zeroArea] = 0
 
         height = disp.shape[2]
         width = disp.shape[3]
@@ -1483,6 +1485,8 @@ class RandomSampleNeighbourPts(nn.Module):
         #     maskGrad = maskGrad * maskSuppress
         maskGrad = self.expand(maskGrad) * (disp > 7e-3).float()
         maskGrad = torch.clamp(maskGrad, min = 3) - 3
+        maskGrad[:,:,self.zeroArea,:] = 0
+        maskGrad[:,:,:,self.zeroArea] = 0
 
         # dispGrad = torch.abs(self.seman_convx(disp)) + torch.abs(self.seman_convy(disp))
 
@@ -1593,3 +1597,139 @@ class RandomSampleNeighbourPts(nn.Module):
         # ptsSet = np.concatenate([ptsSet1, ptsSet2], axis=1)
         # ln_coll = LineCollection(ptsSet, colors='r')
         # ax.add_collection(ln_coll)
+
+
+class RandomSampleBorderSemanPts(nn.Module):
+    def __init__(self, batchNum=10):
+        super(RandomSampleBorderSemanPts, self).__init__()
+        self.wdSize = 11  # Generate points within a window of 5 by 5
+        self.ptsNum = 500  # Each image generate 50000 number of points
+        self.smapleDense = 2000  # For each position, sample 20 points
+        self.batchNum = batchNum
+        self.init_conv()
+        self.channelInd = list()
+        for i in range(self.batchNum):
+            self.channelInd.append(torch.ones(self.ptsNum) * i)
+        self.channelInd = torch.cat(self.channelInd, dim=0).long().cuda()
+        self.zeroArea = torch.Tensor([0,1,2,3,-1,-2,-3,-4]).long()
+        self.kmeanNum = 10
+
+    def init_conv(self):
+        weightsx = torch.Tensor([
+                                [-1., 0., 1.],
+                                [-2., 0., 2.],
+                                [-1., 0., 1.]]).unsqueeze(0).unsqueeze(0)
+
+        weightsy = torch.Tensor([
+                                [1., 2., 1.],
+                                [0., 0., 0.],
+                                [-1., -2., -1.]]).unsqueeze(0).unsqueeze(0)
+
+        self.seman_convx = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+        self.seman_convy = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+
+        self.disp_convx = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+        self.disp_convy = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+
+        self.disp_convx.weight = nn.Parameter(weightsx,requires_grad=False)
+        self.disp_convy.weight = nn.Parameter(weightsy,requires_grad=False)
+
+        self.seman_convx.weight = nn.Parameter(weightsx,requires_grad=False)
+        self.seman_convy.weight = nn.Parameter(weightsy,requires_grad=False)
+        self.expand = torch.nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
+
+        self.deblobConv = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+        weightBlob = torch.ones([3,3]).unsqueeze(0).unsqueeze(0) / 9
+        self.deblobConv.weight = nn.Parameter(weightBlob, requires_grad=False)
+    def visualizeBorderSample(self, disp, forepred, gtMask, viewIndex = 0):
+        maskGrad = torch.abs(self.seman_convx(forepred))
+        maskGrad = self.expand(maskGrad) * (disp > 7e-3).float()
+        maskGrad = torch.clamp(maskGrad, min = 3) - 3
+        maskGrad[:,:,self.zeroArea,:] = 0
+        maskGrad[:,:,:,self.zeroArea] = 0
+
+
+        height = disp.shape[2]
+        width = disp.shape[3]
+
+        centerx = torch.LongTensor(self.ptsNum * self.batchNum).random_(self.wdSize, width - self.wdSize)
+        centery = torch.LongTensor(self.ptsNum * self.batchNum).random_(self.wdSize, height - self.wdSize)
+
+        onBorderSelection = maskGrad[self.channelInd, 0, centery, centerx] > 1e-1
+        centery = centery[onBorderSelection].unsqueeze(1).repeat([1,self.smapleDense])
+        centerx = centerx[onBorderSelection].unsqueeze(1).repeat([1,self.smapleDense])
+        channelInd = self.channelInd[onBorderSelection].unsqueeze(1).repeat([1,self.smapleDense])
+
+        validNum = centerx.shape[0]
+        bx = torch.LongTensor(validNum * self.smapleDense).random_(-self.wdSize, self.wdSize + 1).view(validNum, self.smapleDense)
+        by = torch.LongTensor(validNum * self.smapleDense).random_(-7, 8).view(validNum, self.smapleDense)
+
+        sampledx = centerx + bx
+        sampledy = centery + by
+
+        sampledDisp = disp[channelInd, 0, sampledy, sampledx]
+        kmeanLarge, _ = torch.max(sampledDisp, dim=1, keepdim=True)
+        kmeanSmall, _ = torch.min(sampledDisp, dim=1, keepdim=True)
+        for i in range(self.kmeanNum):
+            distLarge = torch.abs(sampledDisp - kmeanLarge)
+            distSmall = torch.abs(sampledDisp - kmeanSmall)
+
+            belongingLarge = (distLarge <= distSmall).float()
+            belongingSmall = 1 - belongingLarge
+
+            kmeanLarge = torch.sum(sampledDisp * belongingLarge, dim=1, keepdim=True) / torch.sum(belongingLarge, dim=1, keepdim=True)
+            kmeanSmall = torch.sum(sampledDisp * belongingSmall, dim=1, keepdim=True) / torch.sum(belongingSmall, dim=1, keepdim=True)
+
+        contrast = ((kmeanLarge - kmeanSmall) > 0.005) * (torch.sum(belongingLarge, dim=1) > 5)
+        contrast = contrast[:,0]
+
+        sampledx = sampledx[contrast]
+        sampledy = sampledy[contrast]
+        channelInd = channelInd[contrast]
+
+        belongingLarge = belongingLarge[contrast]
+        belongingSmall = belongingSmall[contrast]
+        belongingLarge = belongingLarge.byte()
+        belongingSmall = belongingSmall.byte()
+
+        forex = sampledx[belongingLarge]
+        forey = sampledy[belongingLarge]
+        forec = channelInd[belongingLarge]
+
+        backx = sampledx[belongingSmall]
+        backy = sampledy[belongingSmall]
+        backc = channelInd[belongingSmall]
+
+        cm = plt.get_cmap('magma')
+        viewMaskGrad = maskGrad[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = np.percentile(viewMaskGrad, 99.5)
+        viewMaskGrad = (cm(viewMaskGrad / vmax) * 255).astype(np.uint8)
+        pil.fromarray(viewMaskGrad).show()
+
+        viewDisp = disp[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = np.percentile(viewDisp, 90)
+        viewDisp = (cm(viewDisp / vmax) * 255).astype(np.uint8)
+        pil.fromarray(viewDisp).show()
+
+        viewForePred = forepred[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        viewForePred = (cm(viewForePred) * 255).astype(np.uint8)
+        pil.fromarray(viewForePred).show()
+
+        sampleInter = 10
+        foreSel = forec == viewIndex
+        scfX = forex[foreSel]
+        scfY = forey[foreSel]
+        backSel = backc == viewIndex
+        scbX = backx[backSel]
+        scbY = backy[backSel]
+        plt.imshow(viewDisp[:,:,0:3])
+        plt.scatter(scfX[::sampleInter].contiguous().view(-1).cpu().numpy(), scfY[::sampleInter].contiguous().view(-1).cpu().numpy(), c = 'r', s = 0.6)
+        plt.scatter(scbX[::sampleInter].contiguous().view(-1).cpu().numpy(), scbY[::sampleInter].contiguous().view(-1).cpu().numpy(), c='g', s=0.6)
+
+        plt.imshow(viewForePred[:,:,0:3])
+        plt.scatter(scfX[::sampleInter].contiguous().view(-1).cpu().numpy(), scfY[::sampleInter].contiguous().view(-1).cpu().numpy(), c = 'r', s = 0.6)
+        plt.scatter(scbX[::sampleInter].contiguous().view(-1).cpu().numpy(), scbY[::sampleInter].contiguous().view(-1).cpu().numpy(), c='g', s=0.6)
+
+        correctRate = (torch.sum(gtMask[forec, 0, forey, forex] == 1) + torch.sum(gtMask[backc, 0, backy, backx] == 0)).float() / (forex.shape[0] + backx.shape[0])
+        semanCorrectRate = torch.sum(forepred[channelInd.view(-1), 0, sampledy.view(-1), sampledx.view(-1)] == gtMask[channelInd.view(-1), 0, sampledy.view(-1), sampledx.view(-1)]).float() / (forex.shape[0] + backx.shape[0])
+        # plt.close()

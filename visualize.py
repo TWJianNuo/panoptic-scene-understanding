@@ -270,7 +270,7 @@ def evaluate(opt):
     viewBorderRegress = False
     viewBorderSimilarity = False
     viewRandomSample = True
-    viewSemanReg = True
+    viewSemanReg = False
     height = 256
     width = 512
     tensor23dPts = Tensor23dPts()
@@ -313,6 +313,11 @@ def evaluate(opt):
     if viewRandomSample:
         rdSampleOnBorder = RandomSampleNeighbourPts()
         rdSampleOnBorder.cuda()
+
+    if viewSemanReg:
+        rdSampleSeman = RandomSampleBorderSemanPts()
+        rdSampleSeman.cuda()
+
 
     # if viewBorderSimilarity:
     #     borderSim = BorderSimilarity()
@@ -365,14 +370,34 @@ def evaluate(opt):
                     fig_seman = tensor2semantic(outputs[('seman', 0)], ind=index)
 
                 if viewSemanReg:
-                    foregroundType = [5, 6, 7, 11, 12, 13, 14, 15, 16, 17, 18]  # pole, traffic light, traffic sign, person, rider, car, truck, bus, train, motorcycle, bicycle
+                    foregroundType = [11, 12, 13, 14, 15, 16, 17, 18]  # person, rider, car, truck, bus, train, motorcycle, bicycle
                     softmaxedSeman = F.softmax(outputs[('seman', 0)], dim=1)
-                    foreObjProb = torch.sum(softmaxedSeman[:,foregroundType,:,:], dim=1, keepdim=True)
+                    forePredMask = torch.sum(softmaxedSeman[:,foregroundType,:,:], dim=1, keepdim=True)
+                    foreGtMask = torch.ones(dispMap.shape).cuda().byte()
+
+                    for m in foregroundType:
+                        foreGtMask = foreGtMask * (inputs['seman_gt'] != m)
+                    foreGtMask = 1 - foreGtMask
+                    foreGtMask = foreGtMask.float()
+
+                    forePredMask[forePredMask > 0.5] = 1
+                    forePredMask[forePredMask <= 0.5] = 0
+
+                    forePredMask = foreGtMask
+                    rdSampleSeman.visualizeBorderSample(dispMap, forePredMask, gtMask=foreGtMask, viewIndex=index)
+
 
                     cm = plt.get_cmap('magma')
-                    viewFore = foreObjProb[index, :, :, :].squeeze(0).detach().cpu().numpy()
-                    viewFore = (cm(viewFore) * 255).astype(np.uint8)
-                    pil.fromarray(viewFore).show()
+                    viewForePred = forePredMask[index, :, :, :].squeeze(0).detach().cpu().numpy()
+                    viewForePred = (cm(viewForePred) * 255).astype(np.uint8)
+                    # pil.fromarray(viewForePred).show()
+
+                    viewForeGt = foreGtMask[index, :, :, :].squeeze(0).detach().cpu().numpy()
+                    viewForeGt = (cm(viewForeGt) * 255).astype(np.uint8)
+                    # pil.fromarray(viewForeGt).show()
+                    forePredictCombined = np.concatenate([viewForePred, viewForeGt], axis=0)
+                    # pil.fromarray(forePredictCombined).show()
+                    pil.fromarray(forePredictCombined).save(os.path.join(dirpath, str(idx) + '_fg.png'))
 
                 fig_rgb = tensor2rgb(inputs[('color', 0, 0)], ind=index)
                 fig_disp = tensor2disp(outputs[('disp', 0)], ind=index)
