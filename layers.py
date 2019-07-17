@@ -1381,7 +1381,6 @@ class BorderSimilarity(nn.Module):
 """
 
 
-"""
 class RandomSampleNeighbourPts(nn.Module):
     def __init__(self, batchNum = 10):
         super(RandomSampleNeighbourPts, self).__init__()
@@ -1472,7 +1471,9 @@ class RandomSampleNeighbourPts(nn.Module):
         lossSimPos = torch.mean(torch.sqrt(torch.sum((objDisp - posMean)**2 * objType, dim=1, keepdim=True) / posNum + 1e-14))
         lossSimNeg = torch.mean(torch.sqrt(torch.sum((objDisp - negMean)**2 * (1-objType), dim=1, keepdim=True) / negNum + 1e-14))
         lossSim = (lossSimPos + lossSimNeg) / 2
-        lossContrast = torch.mean(negMean - posMean) + 0.02
+        # lossSim = lossSimPos
+        # lossContrast = torch.mean(negMean - posMean) + 0.02
+        lossContrast = torch.mean(negMean)
         # assert not torch.isnan(lossContrast) and not torch.isnan(lossSim), "nan occur"
         # if torch.isnan(lossContrast) or torch.isnan(lossSim):
         #     lossContrast = 0
@@ -1608,7 +1609,6 @@ class RandomSampleNeighbourPts(nn.Module):
         # ptsSet = np.concatenate([ptsSet1, ptsSet2], axis=1)
         # ln_coll = LineCollection(ptsSet, colors='r')
         # ax.add_collection(ln_coll)
-"""
 
 class RandomSampleBorderSemanPts(nn.Module):
     def __init__(self, batchNum=10):
@@ -1745,7 +1745,7 @@ class RandomSampleBorderSemanPts(nn.Module):
         semanCorrectRate = torch.sum(forepred[channelInd.view(-1), 0, sampledy.view(-1), sampledx.view(-1)] == gtMask[channelInd.view(-1), 0, sampledy.view(-1), sampledx.view(-1)]).float() / (forex.shape[0] + backx.shape[0])
         # plt.close()
 
-
+"""
 class RandomSampleNeighbourPts(nn.Module):
     def __init__(self, batchNum = 10):
         super(RandomSampleNeighbourPts, self).__init__()
@@ -1907,4 +1907,5 @@ class RandomSampleNeighbourPts(nn.Module):
         plt.scatter(centerx[curChannelPosPts][::2], centery[curChannelPosPts][::2], c = 'r', s = 0.5)
         plt.scatter(pairedx[curChannelPosPts][::2], pairedy[curChannelPosPts][::2], c='g', s=0.5)
         plt.close()
+"""
 
