@@ -1380,11 +1380,13 @@ class BorderSimilarity(nn.Module):
 
 """
 
+
+"""
 class RandomSampleNeighbourPts(nn.Module):
     def __init__(self, batchNum = 10):
         super(RandomSampleNeighbourPts, self).__init__()
         self.wdSize = 11 # Generate points within a window of 5 by 5
-        self.ptsNum = 50000 # Each image generate 50000 number of points
+        self.ptsNum = 500000 # Each image generate 50000 number of points
         self.smapleDense = 20 # For each position, sample 20 points
         self.batchNum = batchNum
         self.init_conv()
@@ -1571,22 +1573,31 @@ class RandomSampleNeighbourPts(nn.Module):
         # pil.fromarray(viewForeMask).show()
 
         # View the point pairs within same objects cat
-        sampleInter = 10
-        colors = torch.rand((sampledx.shape[0], 1)).repeat(1, self.smapleDense)
-        curFrameSel = channelInd[:,0] == viewIndex
-        scX = sampledx[curFrameSel]
-        scY = sampledy[curFrameSel]
-        scC = colors[curFrameSel]
-        plt.imshow(viewDisp[:,:,0:3])
-        ax = plt.gca()
-        plt.scatter(scX[::sampleInter,:].contiguous().view(-1).cpu().numpy(), scY[::sampleInter,:].contiguous().view(-1).cpu().numpy(), c = scC[::sampleInter,:].contiguous().view(-1).cpu().numpy(), s = 0.6)
+        sampleInter = 500
+        # colors = torch.rand((sampledx.shape[0], 1)).repeat(1, self.smapleDense)
+        # curFrameSel = channelInd[:,0] == viewIndex
+        # scX = sampledx[curFrameSel]
+        # scY = sampledy[curFrameSel]
+        # scC = colors[curFrameSel]
+        curFrameSel = channelInd[:, 0] == viewIndex
+        fx = sampledx[curFrameSel]
+        fy = sampledy[curFrameSel]
+        obcur = objType[curFrameSel].byte()
+        fx = fx[obcur]
+        fy = fy[obcur]
+        plt.imshow(viewForeMask[:,:,0:3])
+        # ax = plt.gca()
+        # plt.scatter(scX[::sampleInter,:].contiguous().view(-1).cpu().numpy(), scY[::sampleInter,:].contiguous().view(-1).cpu().numpy(), c = scC[::sampleInter,:].contiguous().view(-1).cpu().numpy(), s = 0.6)
+        plt.scatter(fx[::sampleInter].cpu().numpy(),
+                    fy[::sampleInter].cpu().numpy(),
+                    c='r', s=0.6)
         plt.close()
 
         # sampleInter = 10
         scCx = centerx[curFrameSel]
         scCy = centery[curFrameSel]
         plt.imshow(viewMaskGrad[:,:,0:3])
-        plt.scatter(scX[::sampleInter,:].contiguous().view(-1).cpu().numpy(), scY[::sampleInter,:].contiguous().view(-1).cpu().numpy(), c = scC[::sampleInter,:].contiguous().view(-1).cpu().numpy(), s = 0.6)
+        # plt.scatter(scX[::sampleInter,:].contiguous().view(-1).cpu().numpy(), scY[::sampleInter,:].contiguous().view(-1).cpu().numpy(), c = scC[::sampleInter,:].contiguous().view(-1).cpu().numpy(), s = 0.6)
         plt.scatter(scCx[::sampleInter, 0].contiguous().view(-1).cpu().numpy(),
                     scCy[::sampleInter, 0].contiguous().view(-1).cpu().numpy(),
                     c='r', s=1.1)
@@ -1597,7 +1608,7 @@ class RandomSampleNeighbourPts(nn.Module):
         # ptsSet = np.concatenate([ptsSet1, ptsSet2], axis=1)
         # ln_coll = LineCollection(ptsSet, colors='r')
         # ax.add_collection(ln_coll)
-
+"""
 
 class RandomSampleBorderSemanPts(nn.Module):
     def __init__(self, batchNum=10):
@@ -1733,3 +1744,165 @@ class RandomSampleBorderSemanPts(nn.Module):
         correctRate = (torch.sum(gtMask[forec, 0, forey, forex] == 1) + torch.sum(gtMask[backc, 0, backy, backx] == 0)).float() / (forex.shape[0] + backx.shape[0])
         semanCorrectRate = torch.sum(forepred[channelInd.view(-1), 0, sampledy.view(-1), sampledx.view(-1)] == gtMask[channelInd.view(-1), 0, sampledy.view(-1), sampledx.view(-1)]).float() / (forex.shape[0] + backx.shape[0])
         # plt.close()
+
+
+class RandomSampleNeighbourPts(nn.Module):
+    def __init__(self, batchNum = 10):
+        super(RandomSampleNeighbourPts, self).__init__()
+        self.wdSize = 11 # Generate points within a window of 5 by 5
+        self.ptsNum = 50000 # Each image generate 50000 number of points
+        self.batchNum = batchNum
+        self.init_conv()
+        self.channelInd = list()
+        for i in range(self.batchNum):
+            self.channelInd.append(torch.ones(self.ptsNum) * i)
+        self.channelInd = torch.cat(self.channelInd, dim=0).long().cuda()
+
+
+    def init_conv(self):
+        weightsx = torch.Tensor([
+                                [-1., 0., 1.],
+                                [-2., 0., 2.],
+                                [-1., 0., 1.]]).unsqueeze(0).unsqueeze(0)
+
+        weightsy = torch.Tensor([
+                                [1., 2., 1.],
+                                [0., 0., 0.],
+                                [-1., -2., -1.]]).unsqueeze(0).unsqueeze(0)
+
+        self.seman_convx = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+        self.seman_convy = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+
+
+        self.disp_convx = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+        self.disp_convy = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+
+        self.disp_convx.weight = nn.Parameter(weightsx,requires_grad=False)
+        self.disp_convy.weight = nn.Parameter(weightsy,requires_grad=False)
+
+        self.seman_convx.weight = nn.Parameter(weightsx,requires_grad=False)
+        self.seman_convy.weight = nn.Parameter(weightsy,requires_grad=False)
+        self.expand = torch.nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
+        self.zeroArea = torch.Tensor([0, 1, 2, 3, -1, -2, -3, -4]).long()
+
+
+    def randomSampleReg(self, disp, foredgroundMask):
+        # maskGrad = torch.abs(self.seman_convx(foredgroundMask)) + torch.abs(self.seman_convy(foredgroundMask))
+        # maskGrad = self.expand(maskGrad)
+        maskGrad = torch.abs(self.seman_convx(foredgroundMask))
+        maskGrad = self.expand(maskGrad) * (disp > 7e-3).float()
+        maskGrad = torch.clamp(maskGrad, min = 3) - 3
+        maskGrad[:,:,self.zeroArea,:] = 0
+        maskGrad[:,:,:,self.zeroArea] = 0
+
+        height = disp.shape[2]
+        width = disp.shape[3]
+
+        centerx = torch.LongTensor(self.ptsNum * self.batchNum).random_(self.wdSize, width - self.wdSize)
+        centery = torch.LongTensor(self.ptsNum * self.batchNum).random_(self.wdSize, height - self.wdSize)
+
+        bx = torch.LongTensor(self.ptsNum * self.batchNum).random_(-self.wdSize, self.wdSize + 1)
+        by = torch.LongTensor(self.ptsNum * self.batchNum).random_(-self.wdSize, self.wdSize + 1)
+
+        pairedx = centerx + bx
+        pairedy = centery + by
+
+        onBorderSelection = maskGrad[self.channelInd, 0, centery, centerx] > 1e-1
+        centery = centery[onBorderSelection]
+        centerx = centerx[onBorderSelection]
+        pairedx = pairedx[onBorderSelection]
+        pairedy = pairedy[onBorderSelection]
+
+
+        channelInd = self.channelInd[onBorderSelection]
+        anchorType = foredgroundMask[channelInd, 0, centery, centerx]
+        pairType = foredgroundMask[channelInd, 0, pairedy, pairedx]
+        anchorDisp = disp[channelInd, 0, centery, centerx]
+        pairDisp = disp[channelInd, 0, pairedy, pairedx]
+
+        smilarComp = anchorType == pairType
+        contrastComp = 1 - smilarComp
+        contrastCompAnchorPos = contrastComp * (anchorType == 1)
+        contrastCompPairPos = contrastComp * (pairType == 1)
+
+
+        if torch.sum(smilarComp) == 0:
+            similarLoss = 0
+        else:
+            similarLoss = torch.mean(torch.abs(anchorDisp[smilarComp] - pairDisp[smilarComp]))
+        if torch.sum(contrastCompPairPos) == 0 or torch.sum(contrastCompAnchorPos) == 0:
+            contrastLoss = 0
+        else:
+            contrastLoss = torch.mean((anchorDisp[contrastCompPairPos] - pairDisp[contrastCompPairPos])) \
+                            + torch.mean((pairDisp[contrastCompAnchorPos] - anchorDisp[contrastCompAnchorPos]))
+            contrastLoss = contrastLoss / 2 + 0.02
+        return similarLoss, contrastLoss
+    def visualize_randomSample(self, disp, foredgroundMask, suppresMask = None, viewIndex = 0):
+        # maskGrad = torch.abs(self.seman_convx(foredgroundMask)) + torch.abs(self.seman_convy(foredgroundMask))
+        # maskGrad = self.expand(maskGrad)
+        maskGrad = torch.abs(self.seman_convx(foredgroundMask))
+        maskGrad = self.expand(maskGrad) * (disp > 7e-3).float()
+        maskGrad = torch.clamp(maskGrad, min = 3) - 3
+        maskGrad[:,:,self.zeroArea,:] = 0
+        maskGrad[:,:,:,self.zeroArea] = 0
+
+        height = disp.shape[2]
+        width = disp.shape[3]
+
+        centerx = torch.LongTensor(self.ptsNum * self.batchNum).random_(self.wdSize, width - self.wdSize)
+        centery = torch.LongTensor(self.ptsNum * self.batchNum).random_(self.wdSize, height - self.wdSize)
+
+        bx = torch.LongTensor(self.ptsNum * self.batchNum).random_(-self.wdSize, self.wdSize + 1)
+        by = torch.LongTensor(self.ptsNum * self.batchNum).random_(-7, 8)
+        # by = torch.LongTensor(self.ptsNum * self.batchNum).random_(-self.wdSize, self.wdSize + 1)
+
+        pairedx = centerx + bx
+        pairedy = centery + by
+
+        onBorderSelection = maskGrad[self.channelInd, 0, centery, centerx] > 1e-1
+        centery = centery[onBorderSelection]
+        centerx = centerx[onBorderSelection]
+        pairedx = pairedx[onBorderSelection]
+        pairedy = pairedy[onBorderSelection]
+
+
+        channelInd = self.channelInd[onBorderSelection]
+        anchorType = foredgroundMask[channelInd, 0, centery, centerx]
+        pairType = foredgroundMask[channelInd, 0, pairedy, pairedx]
+        anchorDisp = disp[channelInd, 0, centery, centerx]
+        pairDisp = disp[channelInd, 0, pairedy, pairedx]
+
+        smilarComp = anchorType == pairType
+        contrastComp = 1 - smilarComp
+        contrastCompAnchorPos = contrastComp * (anchorType == 1)
+        contrastCompPairPos = contrastComp * (pairType == 1)
+
+        similarLoss = torch.mean(torch.abs(anchorDisp[smilarComp] - pairDisp[smilarComp]))
+        contrastLoss = torch.mean(torch.exp(anchorDisp[contrastCompPairPos] - pairDisp[contrastCompPairPos])) \
+                        + torch.mean(torch.exp(pairDisp[contrastCompAnchorPos] - anchorDisp[contrastCompAnchorPos]))
+
+
+        cm = plt.get_cmap('magma')
+        viewMaskGrad = maskGrad[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = np.percentile(viewMaskGrad, 99)
+        viewMaskGrad = (cm(viewMaskGrad / vmax) * 255).astype(np.uint8)
+        pil.fromarray(viewMaskGrad).show()
+
+        viewDisp = disp[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = np.percentile(viewDisp, 99)
+        viewDisp = (cm(viewDisp / vmax) * 255).astype(np.uint8)
+        pil.fromarray(viewDisp).show()
+
+        viewForeMask = foredgroundMask[viewIndex, :, :, :].squeeze(0).detach().cpu().numpy()
+        vmax = np.percentile(viewForeMask, 99)
+        viewForeMask = (cm(viewForeMask / vmax) * 255).astype(np.uint8)
+        pil.fromarray(viewForeMask).show()
+
+
+        # View the point pairs within same objects cat
+        plt.imshow(viewDisp[:,:,0:3])
+        curChannelPosPts = (channelInd == viewIndex) * smilarComp
+        plt.scatter(centerx[curChannelPosPts][::2], centery[curChannelPosPts][::2], c = 'r', s = 0.5)
+        plt.scatter(pairedx[curChannelPosPts][::2], pairedy[curChannelPosPts][::2], c='g', s=0.5)
+        plt.close()
+

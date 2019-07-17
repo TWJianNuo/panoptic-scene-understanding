@@ -524,6 +524,7 @@ def evaluate(opt):
                         foreGroundMask = foreGroundMask.float()
 
                     rdSampleOnBorder.visualize_randomSample(dispMap, foreGroundMask, suppresMask, viewIndex=index)
+                    # rdSampleOnBorder.randomSampleReg(dispMap, foreGroundMask)
 
 
                 if viewEdgeMerge:
