@@ -1840,11 +1840,12 @@ class RandomSampleNeighbourPts(nn.Module):
     def visualize_randomSample(self, disp, foredgroundMask, suppresMask = None, viewIndex = 0):
         # maskGrad = torch.abs(self.seman_convx(foredgroundMask)) + torch.abs(self.seman_convy(foredgroundMask))
         # maskGrad = self.expand(maskGrad)
-        maskGrad = torch.abs(self.seman_convx(foredgroundMask))
-        maskGrad = self.expand(maskGrad) * (disp > 7e-3).float()
-        maskGrad = torch.clamp(maskGrad, min = 3) - 3
-        maskGrad[:,:,self.zeroArea,:] = 0
-        maskGrad[:,:,:,self.zeroArea] = 0
+        with torch.no_grad():
+            maskGrad = torch.abs(self.seman_convx(foredgroundMask))
+            maskGrad = self.expand(maskGrad) * (disp > 7e-3).float()
+            maskGrad = torch.clamp(maskGrad, min = 3) - 3
+            maskGrad[:,:,self.zeroArea,:] = 0
+            maskGrad[:,:,:,self.zeroArea] = 0
 
         height = disp.shape[2]
         width = disp.shape[3]
