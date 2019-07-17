@@ -1385,7 +1385,7 @@ class RandomSampleNeighbourPts(nn.Module):
     def __init__(self, batchNum = 10):
         super(RandomSampleNeighbourPts, self).__init__()
         self.wdSize = 11 # Generate points within a window of 5 by 5
-        self.ptsNum = 500000 # Each image generate 50000 number of points
+        self.ptsNum = 50000 # Each image generate 50000 number of points
         self.smapleDense = 20 # For each position, sample 20 points
         self.batchNum = batchNum
         self.init_conv()

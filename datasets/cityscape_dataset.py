@@ -87,14 +87,16 @@ class CITYSCAPEDataset(SingleDataset):
 
         return color
     def change_resize(self):
-        cts_focal = np.array((2268.36, 2225.5405988775956)) # suppose all cityscape img possess same pixel focal length
-        targ_f = self.kitti_uf * np.array((self.width, self.height))
-        re_size = np.round(self.full_res_shape / cts_focal * targ_f).astype(np.int)
-        re_size = (np.round(re_size / self.downR) * self.downR).astype(np.int)
-        re_size = np.array((512, 256),dtype=np.int)
-        self.org_width = copy.copy(self.width)
-        self.width = re_size[0].item()
-        self.height = re_size[1].item()
+        # cts_focal = np.array((2268.36, 2225.5405988775956)) # suppose all cityscape img possess same pixel focal length
+        # targ_f = self.kitti_uf * np.array((self.width, self.height))
+        # re_size = np.round(self.full_res_shape / cts_focal * targ_f).astype(np.int)
+        # re_size = (np.round(re_size / self.downR) * self.downR).astype(np.int)
+        # re_size = np.array((512, 256),dtype=np.int)
+        # self.org_width = copy.copy(self.width)
+        # self.width = re_size[0].item()
+        # self.height = re_size[1].item()
+        self.width = 512
+        self.height = 256
 
         for i in range(self.num_scales):
             s = 2 ** i
