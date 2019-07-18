@@ -153,6 +153,7 @@ class Tensor23dPts:
         plt.scatter(projectedPts2d[0::sampleDense, 0], projectedPts2d[0::sampleDense, 1], s=0.5, c='r')
 
 
+
         fig = plt.figure()
         ax = Axes3D(fig)
         ax.view_init(elev=6., azim=170)
