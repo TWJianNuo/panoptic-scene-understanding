@@ -1420,7 +1420,6 @@ class RandomSampleNeighbourPts(nn.Module):
         self.seman_convy.weight = nn.Parameter(weightsy,requires_grad=False)
         self.expand = torch.nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
 
-
     def randomSampleReg(self, disp, foredgroundMask):
         lossSim = 0
         lossContrast = 0
@@ -1492,6 +1491,9 @@ class RandomSampleNeighbourPts(nn.Module):
         return lossSim, lossContrast
     def visualize_randomSample(self, disp, foredgroundMask, suppresMask = None, viewIndex = 0):
         # maskGrad = torch.abs(self.seman_convx(foredgroundMask)) + torch.abs(self.seman_convy(foredgroundMask))
+
+        # maskGrad = torch.abs(foredgroundMask[:,:,:-1,:] - foredgroundMask[:,:,1:, :])
+        # maskGrad = F.pad(maskGrad, [0,0,1,0], 'constant', 0)
         maskGrad = torch.abs(self.seman_convx(foredgroundMask))
         # if suppresMask is not None:
         #     maskSuppress = torch.abs(self.disp_convx(suppresMask)) + torch.abs(self.disp_convy(suppresMask))

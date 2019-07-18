@@ -111,6 +111,21 @@ class KITTIDataset(SingleDataset):
         else:
             velo = None
         # Check
+        # ptsprojected = (realIn @ realEx @ velo.T).T
+        # ptsprojected[:,0] = ptsprojected[:,0] / ptsprojected[:,2]
+        # ptsprojected[:, 1] = ptsprojected[:, 1] / ptsprojected[:, 2]
+        # minx = ptsprojected[:, 0].min()
+        # maxx = ptsprojected[:, 0].max()
+        # miny = ptsprojected[:, 1].min()
+        # maxy = ptsprojected[:, 1].max()
+        #
+        # ptsprojected = (P_velo2im @ velo.T).T
+        # ptsprojected[:,0] = ptsprojected[:,0] / ptsprojected[:,2]
+        # ptsprojected[:, 1] = ptsprojected[:, 1] / ptsprojected[:, 2]
+        # minx = ptsprojected[:, 0].min()
+        # maxx = ptsprojected[:, 0].max()
+        # miny = ptsprojected[:, 1].min()
+        # maxy = ptsprojected[:, 1].max()
         # P_rect @ R_cam2rect @ velo2cam - (realIn @ realEx)[0:3,:]
         # camK - (realIn @ realEx)
         return camK, invcamK, realIn, realEx, velo

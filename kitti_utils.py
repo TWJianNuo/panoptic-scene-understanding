@@ -5,6 +5,7 @@ import numpy as np
 from collections import Counter
 from globalInfo import acGInfo
 from PIL import Image
+import copy
 
 def load_velodyne_points(filename):
     """Load 3D point cloud from KITTI file format
@@ -81,6 +82,15 @@ def generate_depth_map(calib_dir, velo_filename, cam=2, vel_depth=False):
     val_inds = (velo_pts_im[:, 0] >= 0) & (velo_pts_im[:, 1] >= 0)
     val_inds = val_inds & (velo_pts_im[:, 0] < im_shape[1]) & (velo_pts_im[:, 1] < im_shape[0])
     velo_pts_im = velo_pts_im[val_inds, :]
+
+    #Check
+    # velo_pts_im_b = copy.deepcopy(velo_pts_im)
+    # velo_pts_im_b[:,0] = velo_pts_im_b[:,0] * velo_pts_im_b[:,2]
+    # velo_pts_im_b[:, 1] = velo_pts_im_b[:, 1] * velo_pts_im_b[:, 2]
+    # velo_pts_im_b = np.concatenate([velo_pts_im_b, np.ones([velo_pts_im_b.shape[0], 1])], axis=1)
+    # projecM = np.eye(4)
+    # projecM[0:3, :] = P_velo2im
+    # velo_pts_im_b = (np.linalg.inv(projecM) @ velo_pts_im_b.T).T
 
     # project to image
     depth = np.zeros((im_shape[:2]))
