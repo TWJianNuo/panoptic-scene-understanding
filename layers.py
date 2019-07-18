@@ -1462,18 +1462,29 @@ class RandomSampleNeighbourPts(nn.Module):
 
         objType = foredgroundMask[channelInd, 0, sampledy, sampledx]
         objDisp = disp[channelInd, 0, sampledy, sampledx]
+        objType_reverse = 1 - objType
 
         posNum = torch.sum(objType, dim=1, keepdim=True)
         negNum = torch.sum(1-objType, dim=1, keepdim=True)
 
-        posMean = (torch.sum(objDisp * objType, dim=1, keepdim=True) / posNum)
-        negMean = (torch.sum(objDisp * (1-objType), dim=1, keepdim=True) / negNum)
-        lossSimPos = torch.mean(torch.sqrt(torch.sum((objDisp - posMean)**2 * objType, dim=1, keepdim=True) / posNum + 1e-14))
-        lossSimNeg = torch.mean(torch.sqrt(torch.sum((objDisp - negMean)**2 * (1-objType), dim=1, keepdim=True) / negNum + 1e-14))
-        lossSim = (lossSimPos + lossSimNeg) / 2
+        with torch.no_grad():
+            zeromeanDisp = (torch.sum(objDisp * objType_reverse, dim = 1, keepdim=True) / negNum - objDisp) * objType_reverse
+            zeromeanNormDisp = zeromeanDisp / (torch.norm(zeromeanDisp, dim =1, keepdim = True) + 1e-18)
+            softWeights = torch.exp(zeromeanNormDisp) / torch.sum(torch.exp(zeromeanNormDisp) * objType_reverse, dim = 1, keepdim=True) * objType_reverse
+            softMin = torch.sum(softWeights * objDisp, dim = 1, keepdim=True)
+
+        lossContrast = torch.mean(torch.sum(torch.clamp(objDisp * objType_reverse - softMin, min=0) * objType_reverse, dim =1, keepdim = True) / negNum)
+        lossSim = 0
+
+
+        # posMean = (torch.sum(objDisp * objType, dim=1, keepdim=True) / posNum)
+        # negMean = (torch.sum(objDisp * (1-objType), dim=1, keepdim=True) / negNum)
+        # lossSimPos = torch.mean(torch.sqrt(torch.sum((objDisp - posMean)**2 * objType, dim=1, keepdim=True) / posNum + 1e-14))
+        # lossSimNeg = torch.mean(torch.sqrt(torch.sum((objDisp - negMean)**2 * (1-objType), dim=1, keepdim=True) / negNum + 1e-14))
+        # lossSim = (lossSimPos + lossSimNeg) / 2
+        # lossContrast = torch.mean(negMean)
         # lossSim = lossSimPos
         # lossContrast = torch.mean(negMean - posMean) + 0.02
-        lossContrast = torch.mean(negMean)
         # assert not torch.isnan(lossContrast) and not torch.isnan(lossSim), "nan occur"
         # if torch.isnan(lossContrast) or torch.isnan(lossSim):
         #     lossContrast = 0
@@ -1575,23 +1586,22 @@ class RandomSampleNeighbourPts(nn.Module):
 
         # View the point pairs within same objects cat
         sampleInter = 500
-        # colors = torch.rand((sampledx.shape[0], 1)).repeat(1, self.smapleDense)
-        # curFrameSel = channelInd[:,0] == viewIndex
-        # scX = sampledx[curFrameSel]
-        # scY = sampledy[curFrameSel]
-        # scC = colors[curFrameSel]
-        curFrameSel = channelInd[:, 0] == viewIndex
-        fx = sampledx[curFrameSel]
-        fy = sampledy[curFrameSel]
-        obcur = objType[curFrameSel].byte()
-        fx = fx[obcur]
-        fy = fy[obcur]
+        colors = torch.rand((sampledx.shape[0], 1)).repeat(1, self.smapleDense)
+        curFrameSel = channelInd[:,0] == viewIndex
+        scX = sampledx[curFrameSel]
+        scY = sampledy[curFrameSel]
+        scC = colors[curFrameSel]
+        # curFrameSel = channelInd[:, 0] == viewIndex
+        # fx = sampledx[curFrameSel]
+        # fy = sampledy[curFrameSel]
+        # obcur = objType[curFrameSel].byte()
+        # fx = fx[obcur]
+        # fy = fy[obcur]
         plt.imshow(viewForeMask[:,:,0:3])
-        # ax = plt.gca()
-        # plt.scatter(scX[::sampleInter,:].contiguous().view(-1).cpu().numpy(), scY[::sampleInter,:].contiguous().view(-1).cpu().numpy(), c = scC[::sampleInter,:].contiguous().view(-1).cpu().numpy(), s = 0.6)
-        plt.scatter(fx[::sampleInter].cpu().numpy(),
-                    fy[::sampleInter].cpu().numpy(),
-                    c='r', s=0.6)
+        plt.scatter(scX[::sampleInter,:].contiguous().view(-1).cpu().numpy(), scY[::sampleInter,:].contiguous().view(-1).cpu().numpy(), c = scC[::sampleInter,:].contiguous().view(-1).cpu().numpy(), s = 0.6)
+        # plt.scatter(fx[::sampleInter].cpu().numpy(),
+        #             fy[::sampleInter].cpu().numpy(),
+        #             c='r', s=0.6)
         plt.close()
 
         # sampleInter = 10
