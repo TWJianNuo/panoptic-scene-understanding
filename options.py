@@ -85,7 +85,12 @@ class MonodepthOptions:
                                  help="frames to load",
                                  choices=[0,1,2,3],
                                  default=[3])
-
+        self.parser.add_argument("--backBone",
+                                 nargs="+",
+                                 type=str,
+                                 help="backbone used",
+                                 choices=["unet", "ASPP"],
+                                 default=["unet"])
         # OPTIMIZATION options
         self.parser.add_argument("--batch_size",
                                  type=int,

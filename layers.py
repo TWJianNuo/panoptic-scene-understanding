@@ -351,7 +351,8 @@ class Merge_MultDisp(nn.Module):
         else:
             for scale in self.scales:
                 ref_name = ('mul_disp', scale)
-                outputs[('disp', scale)] = outputs[ref_name]
+                if ref_name in outputs:
+                    outputs[('disp', scale)] = outputs[ref_name]
 
 class Compute_SemanticLoss(nn.Module):
     def __init__(self, classtype = 19, min_scale = 3):
