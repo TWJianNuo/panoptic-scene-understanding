@@ -176,6 +176,14 @@ class Trainer:
             self.rdSampleOnBorder = RandomSampleNeighbourPts(batchNum=self.opt.batch_size)
             self.rdSampleOnBorder.cuda()
 
+        if self.opt.borderSemanReg:
+            self.tDevice = torch.device("cuda")
+            self.wallType = [2, 3, 4]  # Building, wall, fence
+            self.roadType = [0, 1, 9]  # road, sidewalk, terrain
+            self.foregroundType = [5, 6, 7, 11, 12, 13, 14, 15, 16, 17, 18]  # pole, traffic light, traffic sign, person, rider, car, truck, bus, train, motorcycle, bicycle
+            self.borderSemanReg = DepthGuessesBySemantics(batchNum=self.opt.batch_size)
+            self.borderSemanReg.cuda()
+
 
     def set_dataset(self):
         """properly handle multiple dataset situation
@@ -203,7 +211,7 @@ class Trainer:
 
             train_dataset = initFunc(
                 datapath_set[i], train_filenames, self.opt.height, self.opt.width,
-                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=True, img_ext=img_ext)
+                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=False, img_ext=img_ext, load_meta=True)
             train_sample_num[i] = train_dataset.__len__()
             stacked_train_datasets.append(train_dataset)
 
@@ -318,7 +326,7 @@ class Trainer:
         """Pass a minibatch through the network and generate images and losses
         """
         for key, ipt in inputs.items():
-            if not(key == 'height' or key == 'width' or key == 'tag'):
+            if not(key == 'height' or key == 'width' or key == 'tag' or key == 'cts_meta'):
                 inputs[key] = ipt.to(self.device)
 
         features = self.models["encoder"](inputs["color_aug", 0, 0])
@@ -740,6 +748,30 @@ class Trainer:
                     # skyerrFig = self.objReg.visualize_regularizeSky(outputs[('depth', 0, scale)], skyMask, viewInd=viewInd)
                     # BdErrFig, viewRdErrFig = self.objReg.visualize_regularizeBuildingRoad(surnormMap, wallMask, roadMask, outputs[('disp', 0)], viewInd=viewInd)
                     # surVarFig = self.objReg.visualize_regularizePoleSign(surnormMap, permuMask, outputs[('disp', 0)], viewInd=viewInd)
+
+                if self.opt.borderSemanReg:
+                    wallTypeMask = torch.ones(outputs[('disp', scale)].shape, device=self.tDevice).byte()
+                    roadTypeMask = torch.ones(outputs[('disp', scale)].shape, device=self.tDevice).byte()
+                    foreGroundMask = torch.ones(outputs[('disp', scale)].shape, device=self.tDevice).byte()
+
+                    with torch.no_grad():
+                        for m in self.wallType:
+                            wallTypeMask = wallTypeMask * (inputs['seman_gt'] != m)
+                        wallTypeMask = (1 - wallTypeMask).float()
+
+                        for m in self.roadType:
+                            roadTypeMask = roadTypeMask * (inputs['seman_gt'] != m)
+                        roadTypeMask = (1 - roadTypeMask).float()
+
+                        for m in self.foregroundType:
+                            foreGroundMask = foreGroundMask * (inputs['seman_gt'] != m)
+                        foreGroundMask = (1 - foreGroundMask).float()
+                    # if scale == 2:
+                    #     self.borderSemanReg.visualizeDepthGuess(realDepth=outputs[('depth', 0, scale)] * self.STEREO_SCALE_FACTOR, dispAct=outputs[('disp', scale)], foredgroundMask = foreGroundMask, wallTypeMask=wallTypeMask, groundTypeMask=roadTypeMask, intrinsic= inputs['realIn'], extrinsic=inputs['realEx'], semantic = inputs['seman_gt_eval'], cts_meta = inputs['cts_meta'], viewInd=0)
+                    lossRoad, lossWall = self.borderSemanReg.regBySeman(realDepth=outputs[('depth', 0, scale)] * self.STEREO_SCALE_FACTOR, dispAct=outputs[('disp', scale)], foredgroundMask = foreGroundMask, wallTypeMask=wallTypeMask, groundTypeMask=roadTypeMask, intrinsic= inputs['realIn'], extrinsic=inputs['realEx'])
+                    loss = loss + (lossRoad + lossWall) * 1e-2 * self.opt.borderSemanRegScale
+
+
 
                 if self.opt.disparity_smoothness > 1e-10:
                     # if outputs[('mul_disp', scale)].shape[1] > 1:

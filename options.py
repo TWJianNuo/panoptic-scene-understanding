@@ -192,6 +192,16 @@ class MonodepthOptions:
                                  type=float,
                                  help="if set, apply border similarity loss",
                                  default=1.0)
+        self.parser.add_argument("--borderSemanReg",
+                                 help="if set, experiment on toy problem",
+                                 action="store_true")
+        self.parser.add_argument("--borderSemanRegScale",
+                                 type=float,
+                                 help="change regularization term scale",
+                                 default=1.0)
+
+
+
         # SYSTEM options
         self.parser.add_argument("--no_cuda",
                                  help="if set disables CUDA",
