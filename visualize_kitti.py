@@ -128,12 +128,12 @@ class Tensor23dPts:
         # if gtmask is not None and gtdepth is not None:
         viewGtMask = copy.deepcopy(gtmask)
         viewGtMask = (cm(viewGtMask) * 255).astype(np.uint8)
-        pil.fromarray(viewGtMask).show()
+        # pil.fromarray(viewGtMask).show()
 
         viewGtDepth = gtdepth
         vmax = np.percentile(viewGtDepth, 99)
         viewGtDepth = (cm(viewGtDepth / vmax) * 255).astype(np.uint8)
-        pil.fromarray(viewGtDepth).show()
+        # pil.fromarray(viewGtDepth).show()
 
         # viewDepth = copy.deepcopy(slice)
         # vmax = np.percentile(viewDepth, 95)
@@ -142,15 +142,15 @@ class Tensor23dPts:
         viewDisp = copy.deepcopy(disp)
         vmax = np.percentile(viewDisp, 95)
         viewDisp = (cm(viewDisp / vmax) * 255).astype(np.uint8)
-        pil.fromarray(viewDisp).show()
+        # pil.fromarray(viewDisp).show()
 
         viewRgb = copy.deepcopy(rgb)
         viewRgb = (viewRgb * 255).astype(np.uint8)
-        pil.fromarray(viewRgb).show()
+        # pil.fromarray(viewRgb).show()
 
-        sampleDense = 1
-        plt.imshow(pil.fromarray(viewGtDepth).resize([im_shape[1], im_shape[0]]))
-        plt.scatter(projectedPts2d[0::sampleDense, 0], projectedPts2d[0::sampleDense, 1], s=0.5, c='r')
+        # sampleDense = 1
+        # plt.imshow(pil.fromarray(viewGtDepth).resize([im_shape[1], im_shape[0]]))
+        # plt.scatter(projectedPts2d[0::sampleDense, 0], projectedPts2d[0::sampleDense, 1], s=0.5, c='r')
 
 
 
@@ -178,27 +178,26 @@ class Tensor23dPts:
         plt.close(fig)
         img1 = pil.open(tmpImgName)
 
-        tmpImgName = 'tmp2.png'
-        fig = plt.figure()
-        ax = Axes3D(fig)
-        ax.view_init(elev=6., azim=170)
-        ax.dist = 4
-        if colors is None:
-            ax.scatter(veh_coord[0::100,0], veh_coord[0::100,1], veh_coord[0::100,2], s=0.1, c = 'b')
-            # ax.scatter(veh_coord_2[0::100, 0], veh_coord_2[0::100, 1], veh_coord_2[0::100, 2], s=0.1, c='r')
-        else:
-            ax.scatter(veh_coord[0::50,0], veh_coord[0::50,1], veh_coord[0::50,2], s=0.5, c = colors[0::50, :])
-        ax.scatter(camPos[0], camPos[1], camPos[2], s=10, c='g')
-        ax.set_zlim(-10, 10)
-        plt.ylim([-10, 10])
-        plt.xlim([10, 16])
-        set_axes_equal(ax)
-        fig.savefig(tmpImgName)
-        plt.close(fig)
-        img2 = pil.open(tmpImgName)
-        img = Image.fromarray(np.concatenate([np.array(img1)[:,:,0:3], np.array(img2)[:,:,0:3]], axis=1))
+        # tmpImgName = 'tmp2.png'
+        # fig = plt.figure()
+        # ax = Axes3D(fig)
+        # ax.view_init(elev=6., azim=170)
+        # ax.dist = 4
+        # if colors is None:
+        #     ax.scatter(veh_coord[0::100,0], veh_coord[0::100,1], veh_coord[0::100,2], s=0.1, c = 'b')
+        # else:
+        #     ax.scatter(veh_coord[0::50,0], veh_coord[0::50,1], veh_coord[0::50,2], s=0.5, c = colors[0::50, :])
+        # ax.scatter(camPos[0], camPos[1], camPos[2], s=10, c='g')
+        # ax.set_zlim(-10, 10)
+        # plt.ylim([-10, 10])
+        # plt.xlim([10, 16])
+        # set_axes_equal(ax)
+        # fig.savefig(tmpImgName)
+        # plt.close(fig)
+        # img2 = pil.open(tmpImgName)
+        # img = Image.fromarray(np.concatenate([np.array(img1)[:,:,0:3], np.array(img2)[:,:,0:3]], axis=1))
 
-        return img, veh_coord
+        return img1, veh_coord, velo
 
 class Comp1dgrad(nn.Module):
     def __init__(self):
@@ -305,7 +304,7 @@ def evaluate(opt):
     sfx = torch.nn.Softmax(dim=1)
     mergeDisp = Merge_MultDisp(opt.scales, batchSize = opt.batch_size, isMulChannel = opt.isMulChannel)
     svRoot = '/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/figure_visual'
-    index = 1
+    index = 4
     isvisualize = True
     viewEdgeMerge = False
     isHist = False

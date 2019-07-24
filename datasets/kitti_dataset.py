@@ -88,10 +88,18 @@ class KITTIDataset(SingleDataset):
         # get image shape
         im_shape = cam2cam["S_rect_02"][::-1].astype(np.int32)
 
+        sfx = self.height / im_shape[0]
+        sfy = self.width / im_shape[1]
+        scaleM = np.eye(4)
+        scaleM[0,0] = sfx
+        scaleM[1,1] = sfy
         # compute projection matrix velodyne->image plane
         R_cam2rect = np.eye(4)
         R_cam2rect[:3, :3] = cam2cam['R_rect_00'].reshape(3, 3)
-        P_rect = cam2cam['P_rect_0' + str(2)].reshape(3, 4)
+        P_rect = np.eye(4)
+        P_rect[0:3,:] = cam2cam['P_rect_0' + str(2)].reshape(3, 4)
+        P_rect = scaleM @ P_rect
+        P_rect = P_rect[0:3, :]
         P_velo2im = np.dot(np.dot(P_rect, R_cam2rect), velo2cam)
 
         camK = np.eye(4)
