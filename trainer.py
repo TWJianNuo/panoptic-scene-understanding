@@ -769,7 +769,8 @@ class Trainer:
                     # if scale == 2:
                     #     self.borderSemanReg.visualizeDepthGuess(realDepth=outputs[('depth', 0, scale)] * self.STEREO_SCALE_FACTOR, dispAct=outputs[('disp', scale)], foredgroundMask = foreGroundMask, wallTypeMask=wallTypeMask, groundTypeMask=roadTypeMask, intrinsic= inputs['realIn'], extrinsic=inputs['realEx'], semantic = inputs['seman_gt_eval'], cts_meta = inputs['cts_meta'], viewInd=0)
                     lossRoad, lossWall = self.borderSemanReg.regBySeman(realDepth=outputs[('depth', 0, scale)] * self.STEREO_SCALE_FACTOR, dispAct=outputs[('disp', scale)], foredgroundMask = foreGroundMask, wallTypeMask=wallTypeMask, groundTypeMask=roadTypeMask, intrinsic= inputs['realIn'], extrinsic=inputs['realEx'])
-                    loss = loss + (lossRoad / 10000 + lossWall * 50) * 1e-3 * self.opt.borderSemanRegScale
+                    # loss = loss + (lossRoad * 0 + lossWall * 1) * self.opt.borderSemanRegScale
+                    loss = loss + (lossRoad * 0 + lossWall * 0.5) * self.opt.borderSemanRegScale
                     if scale == 0:
                         losses["loss_reg/{}".format("borderSemanRoad")] = lossRoad
                         losses["loss_reg/{}".format("borderSemanWall")] = lossWall

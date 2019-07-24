@@ -2076,10 +2076,11 @@ class DepthGuessesBySemantics(nn.Module):
             channelInd = channelInd[onBackSelection]
             sampledx_pair = sampledx_pair[onBackSelection]
             sampledy_pair = sampledy_pair[onBackSelection]
-            sourceDisp = dispAct[channelInd, 0, centery, centerx]
-            targetDisp = dispAct[channelInd, 0, sampledy_pair, sampledx_pair]
-            errSel = (sourceDisp / targetDisp > 1.15).float()
+        sourceDisp = dispAct[channelInd, 0, centery, centerx]
+        targetDisp = dispAct[channelInd, 0, sampledy_pair, sampledx_pair]
+        errSel = (sourceDisp / targetDisp > 1.15).float()
         lossWall = torch.sum(torch.clamp(sourceDisp - targetDisp.detach(), min=0) * errSel) / torch.sum(errSel) * 0.1
+        # lossWall = torch.mean(torch.clamp(sourceDisp - targetDisp.detach(), min=0)) * 0.1
         if torch.isnan(lossWall):
             lossWall = 0
         # Wall
@@ -2716,56 +2717,6 @@ class DepthGuessesBySemantics(nn.Module):
             plt.figure()
             plt.imshow(semanFig)
             plt.scatter(view2dX, view2dY, c = 'c', s = 0.2)
-
-            # New Wall parts, using different sample strategy
-            # dispTest = deepcopy(dispAct)
-            # for i in range(20):
-            #
-            #     height = dispAct.shape[2]
-            #     width = dispAct.shape[3]
-            #
-            #     centerx = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, width - self.wdSize)
-            #     centery = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, height - self.wdSize)
-            #     maskGrad = self.expand(maskGrad)
-            #
-            #     onBorderSelection = (maskGrad[self.channelInd_wall, 0, centery, centerx] > 1e-1) * (wallTypeMask[self.channelInd_wall, 0, centery, centerx] == 1)
-            #     centery = centery[onBorderSelection]
-            #     centerx = centerx[onBorderSelection]
-            #     channelInd = self.channelInd_wall[onBorderSelection]
-            #
-            #     validNum = centerx.shape[0]
-            #     bx = torch.LongTensor(validNum).random_(-self.wdSize, self.wdSize + 1)
-            #     by = torch.LongTensor(validNum).random_(-7, 8)
-            #
-            #     sampledx_pair = centerx + bx
-            #     sampledy_pair = centery + by
-            #
-            #     onBackSelection = wallTypeMask[channelInd, 0, sampledy_pair, sampledx_pair] == 1
-            #     onBorderSelection[onBorderSelection] = onBackSelection
-            #     centery = centery[onBackSelection]
-            #     centerx = centerx[onBackSelection]
-            #     channelInd = channelInd[onBackSelection]
-            #     sampledx_pair = sampledx_pair[onBackSelection]
-            #     sampledy_pair = sampledy_pair[onBackSelection]
-            #     sourceDisp = dispAct[channelInd, 0, centery, centerx]
-            #     targetDisp = dispAct[channelInd, 0, sampledy_pair, sampledx_pair]
-            #     errSel = (sourceDisp / targetDisp > 1.25).float()
-            #     lossWall = torch.sum(torch.clamp(targetDisp - sourceDisp, min=0) * errSel) / torch.sum(errSel)
-            #
-            #     errSel = errSel.byte()
-            #     onBorderSelection[onBorderSelection] = errSel
-            #     centery = centery[errSel]
-            #     centerx = centerx[errSel]
-            #     channelInd = channelInd[errSel]
-            #     sampledx_pair = sampledx_pair[errSel]
-            #     sampledy_pair = sampledy_pair[errSel]
-            #
-            #     dispTest[channelInd, 0, centery, centerx] = targetDisp[errSel]
-            #
-            # viewDispTest = dispTest[viewInd, :, :, :].squeeze(0).detach().cpu().numpy()
-            # vmax = np.percentile(viewDispTest, 90)
-            # viewDispTest = (cm(viewDispTest / vmax) * 255).astype(np.uint8)
-            # pil.fromarray(viewDispTest).show()
 
             height = dispAct.shape[2]
             width = dispAct.shape[3]
