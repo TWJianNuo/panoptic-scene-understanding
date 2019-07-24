@@ -2078,9 +2078,9 @@ class DepthGuessesBySemantics(nn.Module):
             sampledy_pair = sampledy_pair[onBackSelection]
         sourceDisp = dispAct[channelInd, 0, centery, centerx]
         targetDisp = dispAct[channelInd, 0, sampledy_pair, sampledx_pair]
-        errSel = (sourceDisp / targetDisp > 1.15).float()
-        lossWall = torch.sum(torch.clamp(sourceDisp - targetDisp.detach(), min=0) * errSel) / torch.sum(errSel) * 0.1
-        # lossWall = torch.mean(torch.clamp(sourceDisp - targetDisp.detach(), min=0)) * 0.1
+        # errSel = (sourceDisp / targetDisp > 1.15).float()
+        # lossWall = torch.sum(torch.clamp(sourceDisp - targetDisp.detach(), min=0) * errSel) / torch.sum(errSel) * 0.1
+        lossWall = torch.mean(torch.clamp(sourceDisp - targetDisp.detach(), min=0)) * 0.1
         if torch.isnan(lossWall):
             lossWall = 0
         # Wall
