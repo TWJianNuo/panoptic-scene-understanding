@@ -1935,6 +1935,12 @@ class DepthGuessesBySemantics(nn.Module):
         for i in range(self.batchNum):
             self.channelInd.append(torch.ones(self.ptsNum) * i)
         self.channelInd = torch.cat(self.channelInd, dim=0).long().cuda()
+
+        self.channelInd_wall = list()
+        for i in range(self.batchNum):
+            self.channelInd_wall.append(torch.ones(self.ptsNum * 100) * i)
+        self.channelInd_wall = torch.cat(self.channelInd_wall, dim=0).long().cuda()
+
         self.zeroArea = torch.Tensor([0,1,2,3,-1,-2,-3,-4]).long()
     def init_conv(self):
         weightsx = torch.Tensor([
@@ -1989,13 +1995,13 @@ class DepthGuessesBySemantics(nn.Module):
             sampledy = centery + by
 
             lossRoad = 0
-            lossWall = 0
+            # lossWall = 0
 
             roadBackGroundPts = groundTypeMask[channelInd, 0, sampledy, sampledx]
             roadBackSelection = torch.sum(roadBackGroundPts, 1) > 20
 
-            wallBackGroundPts = wallTypeMask[channelInd, 0, sampledy, sampledx]
-            wallBackSelection = torch.sum(wallBackGroundPts, 1) > 20
+            # wallBackGroundPts = wallTypeMask[channelInd, 0, sampledy, sampledx]
+            # wallBackSelection = torch.sum(wallBackGroundPts, 1) > 20
 
         if torch.sum(roadBackSelection) > 20:
             roadBackGroundPts = roadBackGroundPts[roadBackSelection, :]
@@ -2039,68 +2045,102 @@ class DepthGuessesBySemantics(nn.Module):
             roadBackGroundPts = roadBackGroundPts.view(-1)
             roadDepthNew = roadDepthNew[roadBackGroundPts]
 
-            forgroundRoad = (roadDepthNew > 1e-1).float()
-            lossRoad = torch.mean((roadDepthOld - roadDepthNew.detach()) ** 2 * forgroundRoad)
+            forgroundRoad = ((roadDepthNew > 1e-1) * (roadDepthNew < 100) * (roadDepthOld < 100)).float()
+            lossRoad = torch.sum(torch.clamp(roadDepthNew.detach() - roadDepthOld, min=0) * forgroundRoad) / torch.sum(forgroundRoad) * 0.1
+            if torch.isnan(lossRoad):
+                lossRoad = 0
 
+
+        with torch.no_grad():
+            centerx = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, width - self.wdSize)
+            centery = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, height - self.wdSize)
+            maskGrad = self.expand(maskGrad)
+
+            onBorderSelection = (maskGrad[self.channelInd_wall, 0, centery, centerx] > 1e-1) * (
+                    wallTypeMask[self.channelInd_wall, 0, centery, centerx] == 1)
+            centery = centery[onBorderSelection]
+            centerx = centerx[onBorderSelection]
+            channelInd = self.channelInd_wall[onBorderSelection]
+
+            validNum = centerx.shape[0]
+            bx = torch.LongTensor(validNum).random_(-self.wdSize, self.wdSize + 1)
+            by = torch.LongTensor(validNum).random_(-7, 8)
+
+            sampledx_pair = centerx + bx
+            sampledy_pair = centery + by
+
+            onBackSelection = wallTypeMask[channelInd, 0, sampledy_pair, sampledx_pair] == 1
+            # onBorderSelection[onBorderSelection] = onBackSelection
+            centery = centery[onBackSelection]
+            centerx = centerx[onBackSelection]
+            channelInd = channelInd[onBackSelection]
+            sampledx_pair = sampledx_pair[onBackSelection]
+            sampledy_pair = sampledy_pair[onBackSelection]
+            sourceDisp = dispAct[channelInd, 0, centery, centerx]
+            targetDisp = dispAct[channelInd, 0, sampledy_pair, sampledx_pair]
+            errSel = (sourceDisp / targetDisp > 1.15).float()
+        lossWall = torch.sum(torch.clamp(sourceDisp - targetDisp.detach(), min=0) * errSel) / torch.sum(errSel) * 0.1
+        if torch.isnan(lossWall):
+            lossWall = 0
         # Wall
-        if torch.sum(wallBackSelection) > 20:
-            wallBackGroundPts = wallBackGroundPts[wallBackSelection, :]
-            wallX = sampledx[wallBackSelection, :]
-            wallY = sampledy[wallBackSelection, :]
-            wallChannle = channelInd[wallBackSelection, :]
-            wallDepth = realDepth[wallChannle, 0, wallY, wallX]
-            wallX = wallX.float().cuda()
-            wallY = wallY.float().cuda()
-            wallPts3DCam = torch.stack([wallX * wallDepth, wallY * wallDepth, wallDepth, torch.ones_like(wallDepth)],
-                                       dim=2).view(-1, 4, 1)
-            wallPts3DParam = torch.matmul(intrinsic, extrinsic)
-            wallPts3DParam_inv = torch.inverse(wallPts3DParam)
-            wallPts3DParam = wallPts3DParam[wallChannle, :, :].view(-1, 4, 4)
-            wallPts3DParam_inv = wallPts3DParam_inv[wallChannle, :, :].view(-1, 4, 4)
-            wallPts3D = torch.matmul(wallPts3DParam_inv, wallPts3DCam).view(-1, self.smapleDense, 4, 1)
-
-            a = torch.sum((wallPts3D[:, :, 1, 0] * wallBackGroundPts) ** 2, dim=1)  # y.T @ y
-            b = torch.sum((wallPts3D[:, :, 1, 0] * wallBackGroundPts), dim=1)  # y.T @ 1
-            c = b  # 1 @ y.T
-            d = torch.sum(wallBackGroundPts, dim=1)  # 1.T @ 1
-            m1 = torch.sum((wallPts3D[:, :, 1, 0] * wallPts3D[:, :, 0, 0] * wallBackGroundPts), dim=1)  # -x.T @ y
-            m2 = torch.sum((wallPts3D[:, :, 0, 0] * wallBackGroundPts), dim=1)  # -x.T @ 1
-            invScale = 1 / (a * d - b * c)
-            normal = (torch.abs(invScale) < 1e4).float()
-            invMatrix = invScale.view(-1, 1, 1).repeat(1, 2, 2) * torch.cat(
-                [torch.stack([d, -b], dim=1).view(-1, 1, 2), torch.stack([-c, a], dim=1).view(-1, 1, 2)], dim=1)
-            equRight = torch.stack([m1, m2], dim=1).view(-1, 1, 2)
-            wallPlaneComp = torch.matmul(equRight, invMatrix)
-            wallPlane = torch.stack([-torch.ones(wallBackGroundPts.shape[0], device=tdevice), wallPlaneComp[:, 0, 0],
-                                     torch.zeros(wallBackGroundPts.shape[0], device=tdevice), wallPlaneComp[:, 0, 1]],
-                                    dim=1).unsqueeze(1).unsqueeze(1).repeat(1, self.smapleDense, 1, 1).view(-1, 1, 4)
-            wallPlane = wallPlane / torch.norm(wallPlane[:, :, 0:3], dim=2, keepdim=True).repeat(1, 1, 4)
-
-            ptsOnPlane = torch.stack([(wallPlane[:, 0, 1] + wallPlane[:, 0, 3]) / (-wallPlane[:, 0, 0]),
-                                      torch.ones(wallPlane.shape[0], device=tdevice),
-                                      torch.zeros(wallPlane.shape[0], device=tdevice),
-                                      torch.ones(wallPlane.shape[0], device=tdevice)], dim=1).unsqueeze(dim=2)
-            wallPts3D_flat = wallPts3D.view(-1, 4, 1)
-            ptsFromOrgToIntrest = (wallPts3D_flat - ptsOnPlane)[:, 0:3, 0]
-            dirLength = torch.sum(wallPlane[:, 0, 0:3] * ptsFromOrgToIntrest, dim=1)
-
-            wallPtsProjectedToPlane = ptsFromOrgToIntrest - (dirLength.unsqueeze(1).repeat(1, 3) * wallPlane[:, 0, 0:3])
-            wallPtsProjectedToPlane = ptsOnPlane[:, 0:3, 0] + wallPtsProjectedToPlane
-            wallPtsProjectedToPlane = torch.cat(
-                [wallPtsProjectedToPlane, torch.ones([wallPtsProjectedToPlane.shape[0], 1], device=tdevice)], dim=1)
-            wallPtsProjectedToPlane = wallPtsProjectedToPlane.view(-1, 4, 1)
-
-            wallProjectedNew = torch.matmul(wallPts3DParam, wallPtsProjectedToPlane)
-            wallDepthNew = wallProjectedNew[:, 2, 0]
-
-            wallBackGroundPts = wallBackGroundPts.byte()
-            wallDepthOld = wallDepth[wallBackGroundPts]
-            normal = normal.unsqueeze(1).repeat(1, self.smapleDense)[wallBackGroundPts]
-
-            wallBackGroundPts = wallBackGroundPts.view(-1)
-            wallDepthNew = wallDepthNew[wallBackGroundPts]
-
-            lossWall = torch.mean((wallDepthOld - wallDepthNew.detach()) ** 2 * normal) * 1e-1
+        # if torch.sum(wallBackSelection) > 20:
+        #     wallBackGroundPts = wallBackGroundPts[wallBackSelection, :]
+        #     wallX = sampledx[wallBackSelection, :]
+        #     wallY = sampledy[wallBackSelection, :]
+        #     wallChannle = channelInd[wallBackSelection, :]
+        #     wallDepth = realDepth[wallChannle, 0, wallY, wallX]
+        #     wallX = wallX.float().cuda()
+        #     wallY = wallY.float().cuda()
+        #     wallPts3DCam = torch.stack([wallX * wallDepth, wallY * wallDepth, wallDepth, torch.ones_like(wallDepth)],
+        #                                dim=2).view(-1, 4, 1)
+        #     wallPts3DParam = torch.matmul(intrinsic, extrinsic)
+        #     wallPts3DParam_inv = torch.inverse(wallPts3DParam)
+        #     wallPts3DParam = wallPts3DParam[wallChannle, :, :].view(-1, 4, 4)
+        #     wallPts3DParam_inv = wallPts3DParam_inv[wallChannle, :, :].view(-1, 4, 4)
+        #     wallPts3D = torch.matmul(wallPts3DParam_inv, wallPts3DCam).view(-1, self.smapleDense, 4, 1)
+        #
+        #     a = torch.sum((wallPts3D[:, :, 1, 0] * wallBackGroundPts) ** 2, dim=1)  # y.T @ y
+        #     b = torch.sum((wallPts3D[:, :, 1, 0] * wallBackGroundPts), dim=1)  # y.T @ 1
+        #     c = b  # 1 @ y.T
+        #     d = torch.sum(wallBackGroundPts, dim=1)  # 1.T @ 1
+        #     m1 = torch.sum((wallPts3D[:, :, 1, 0] * wallPts3D[:, :, 0, 0] * wallBackGroundPts), dim=1)  # -x.T @ y
+        #     m2 = torch.sum((wallPts3D[:, :, 0, 0] * wallBackGroundPts), dim=1)  # -x.T @ 1
+        #     invScale = 1 / (a * d - b * c)
+        #     normal = (torch.abs(invScale) < 1e4).float()
+        #     invMatrix = invScale.view(-1, 1, 1).repeat(1, 2, 2) * torch.cat(
+        #         [torch.stack([d, -b], dim=1).view(-1, 1, 2), torch.stack([-c, a], dim=1).view(-1, 1, 2)], dim=1)
+        #     equRight = torch.stack([m1, m2], dim=1).view(-1, 1, 2)
+        #     wallPlaneComp = torch.matmul(equRight, invMatrix)
+        #     wallPlane = torch.stack([-torch.ones(wallBackGroundPts.shape[0], device=tdevice), wallPlaneComp[:, 0, 0],
+        #                              torch.zeros(wallBackGroundPts.shape[0], device=tdevice), wallPlaneComp[:, 0, 1]],
+        #                             dim=1).unsqueeze(1).unsqueeze(1).repeat(1, self.smapleDense, 1, 1).view(-1, 1, 4)
+        #     wallPlane = wallPlane / torch.norm(wallPlane[:, :, 0:3], dim=2, keepdim=True).repeat(1, 1, 4)
+        #
+        #     ptsOnPlane = torch.stack([(wallPlane[:, 0, 1] + wallPlane[:, 0, 3]) / (-wallPlane[:, 0, 0]),
+        #                               torch.ones(wallPlane.shape[0], device=tdevice),
+        #                               torch.zeros(wallPlane.shape[0], device=tdevice),
+        #                               torch.ones(wallPlane.shape[0], device=tdevice)], dim=1).unsqueeze(dim=2)
+        #     wallPts3D_flat = wallPts3D.view(-1, 4, 1)
+        #     ptsFromOrgToIntrest = (wallPts3D_flat - ptsOnPlane)[:, 0:3, 0]
+        #     dirLength = torch.sum(wallPlane[:, 0, 0:3] * ptsFromOrgToIntrest, dim=1)
+        #
+        #     wallPtsProjectedToPlane = ptsFromOrgToIntrest - (dirLength.unsqueeze(1).repeat(1, 3) * wallPlane[:, 0, 0:3])
+        #     wallPtsProjectedToPlane = ptsOnPlane[:, 0:3, 0] + wallPtsProjectedToPlane
+        #     wallPtsProjectedToPlane = torch.cat(
+        #         [wallPtsProjectedToPlane, torch.ones([wallPtsProjectedToPlane.shape[0], 1], device=tdevice)], dim=1)
+        #     wallPtsProjectedToPlane = wallPtsProjectedToPlane.view(-1, 4, 1)
+        #
+        #     wallProjectedNew = torch.matmul(wallPts3DParam, wallPtsProjectedToPlane)
+        #     wallDepthNew = wallProjectedNew[:, 2, 0]
+        #
+        #     wallBackGroundPts = wallBackGroundPts.byte()
+        #     wallDepthOld = wallDepth[wallBackGroundPts]
+        #     normal = normal.unsqueeze(1).repeat(1, self.smapleDense)[wallBackGroundPts]
+        #
+        #     wallBackGroundPts = wallBackGroundPts.view(-1)
+        #     wallDepthNew = wallDepthNew[wallBackGroundPts]
+        #
+        #     lossWall = torch.mean((wallDepthOld - wallDepthNew.detach()) ** 2 * normal) * 1e-1
 
         return lossRoad, lossWall
 
@@ -2588,8 +2628,8 @@ class DepthGuessesBySemantics(nn.Module):
 
             roadBackGroundPts = groundTypeMask[channelInd, 0, sampledy, sampledx]
             roadBackSelection = torch.sum(roadBackGroundPts, 1) > 20
-            if torch.sum(roadBackSelection) < 20:
-                return
+            # if torch.sum(roadBackSelection) < 20:
+            #     return
             roadBackGroundPts = roadBackGroundPts[roadBackSelection, :]
             roadX = sampledx[roadBackSelection, :]
             roadY = sampledy[roadBackSelection, :]
@@ -2636,9 +2676,9 @@ class DepthGuessesBySemantics(nn.Module):
             # furtherSafeCheck = roadDepthNew > 1e-1
             # if torch.sum(furtherSafeCheck) < 20:
             #     return
-            lossDepthRoad = torch.mean((roadDepthOld - roadDepthNew)**2)
-            lossRegXRoad = torch.mean((roadXOld - roadXNew)**2)
-            lossRegYRoad = torch.mean((roadYOld - roadYNew)**2)
+            # lossDepthRoad = torch.mean((roadDepthOld - roadDepthNew)**2)
+            # lossRegXRoad = torch.mean((roadXOld - roadXNew)**2)
+            # lossRegYRoad = torch.mean((roadYOld - roadYNew)**2)
 
             # Check
             ptsck = roadPtsProjectedToPlane
@@ -2677,9 +2717,120 @@ class DepthGuessesBySemantics(nn.Module):
             plt.imshow(semanFig)
             plt.scatter(view2dX, view2dY, c = 'c', s = 0.2)
 
+            # New Wall parts, using different sample strategy
+            # dispTest = deepcopy(dispAct)
+            # for i in range(20):
+            #
+            #     height = dispAct.shape[2]
+            #     width = dispAct.shape[3]
+            #
+            #     centerx = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, width - self.wdSize)
+            #     centery = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, height - self.wdSize)
+            #     maskGrad = self.expand(maskGrad)
+            #
+            #     onBorderSelection = (maskGrad[self.channelInd_wall, 0, centery, centerx] > 1e-1) * (wallTypeMask[self.channelInd_wall, 0, centery, centerx] == 1)
+            #     centery = centery[onBorderSelection]
+            #     centerx = centerx[onBorderSelection]
+            #     channelInd = self.channelInd_wall[onBorderSelection]
+            #
+            #     validNum = centerx.shape[0]
+            #     bx = torch.LongTensor(validNum).random_(-self.wdSize, self.wdSize + 1)
+            #     by = torch.LongTensor(validNum).random_(-7, 8)
+            #
+            #     sampledx_pair = centerx + bx
+            #     sampledy_pair = centery + by
+            #
+            #     onBackSelection = wallTypeMask[channelInd, 0, sampledy_pair, sampledx_pair] == 1
+            #     onBorderSelection[onBorderSelection] = onBackSelection
+            #     centery = centery[onBackSelection]
+            #     centerx = centerx[onBackSelection]
+            #     channelInd = channelInd[onBackSelection]
+            #     sampledx_pair = sampledx_pair[onBackSelection]
+            #     sampledy_pair = sampledy_pair[onBackSelection]
+            #     sourceDisp = dispAct[channelInd, 0, centery, centerx]
+            #     targetDisp = dispAct[channelInd, 0, sampledy_pair, sampledx_pair]
+            #     errSel = (sourceDisp / targetDisp > 1.25).float()
+            #     lossWall = torch.sum(torch.clamp(targetDisp - sourceDisp, min=0) * errSel) / torch.sum(errSel)
+            #
+            #     errSel = errSel.byte()
+            #     onBorderSelection[onBorderSelection] = errSel
+            #     centery = centery[errSel]
+            #     centerx = centerx[errSel]
+            #     channelInd = channelInd[errSel]
+            #     sampledx_pair = sampledx_pair[errSel]
+            #     sampledy_pair = sampledy_pair[errSel]
+            #
+            #     dispTest[channelInd, 0, centery, centerx] = targetDisp[errSel]
+            #
+            # viewDispTest = dispTest[viewInd, :, :, :].squeeze(0).detach().cpu().numpy()
+            # vmax = np.percentile(viewDispTest, 90)
+            # viewDispTest = (cm(viewDispTest / vmax) * 255).astype(np.uint8)
+            # pil.fromarray(viewDispTest).show()
+
+            height = dispAct.shape[2]
+            width = dispAct.shape[3]
+
+            centerx = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, width - self.wdSize)
+            centery = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, height - self.wdSize)
+            maskGrad = self.expand(maskGrad)
+
+            onBorderSelection = (maskGrad[self.channelInd_wall, 0, centery, centerx] > 1e-1) * (
+                        wallTypeMask[self.channelInd_wall, 0, centery, centerx] == 1)
+            centery = centery[onBorderSelection]
+            centerx = centerx[onBorderSelection]
+            channelInd = self.channelInd_wall[onBorderSelection]
+
+            validNum = centerx.shape[0]
+            bx = torch.LongTensor(validNum).random_(-self.wdSize, self.wdSize + 1)
+            by = torch.LongTensor(validNum).random_(-7, 8)
+
+            sampledx_pair = centerx + bx
+            sampledy_pair = centery + by
+
+            onBackSelection = wallTypeMask[channelInd, 0, sampledy_pair, sampledx_pair] == 1
+            onBorderSelection[onBorderSelection] = onBackSelection
+            centery = centery[onBackSelection]
+            centerx = centerx[onBackSelection]
+            channelInd = channelInd[onBackSelection]
+            sampledx_pair = sampledx_pair[onBackSelection]
+            sampledy_pair = sampledy_pair[onBackSelection]
+            sourceDisp = dispAct[channelInd, 0, centery, centerx]
+            targetDisp = dispAct[channelInd, 0, sampledy_pair, sampledx_pair]
+            errSel = (sourceDisp / targetDisp > 1.15).float()
+            lossWall = torch.sum(torch.clamp(sourceDisp - targetDisp.detach(), min=0) * errSel) / torch.sum(errSel)
+
+            viewSel = channelInd == viewInd
+            viewcx = centerx[viewSel].cpu().numpy()
+            viewcy = centery[viewSel].cpu().numpy()
+            fig = plt.figure()
+            plt.imshow(semanFig)
+            plt.scatter(viewcx, viewcy, c = 'c', s = 0.5)
 
 
 
+            cm = plt.get_cmap('magma')
+            viewDisp = dispAct[viewInd, :, :, :].squeeze(0).detach().cpu().numpy()
+            vmax = np.percentile(viewDisp, 90)
+            viewDisp = (cm(viewDisp / vmax) * 255).astype(np.uint8)
+            fig = plt.figure()
+            plt.imshow(viewDisp)
+            plt.scatter(viewcx, viewcy, c = 'c', s = 0.5)
+
+
+            fig, ax = plt.subplots()
+            plt.imshow(viewDisp)
+            curChannelPosPts = (channelInd == viewInd)
+            curChannelPosPts[::2] = 0
+            ptsSet1 = np.expand_dims(np.stack([centerx[curChannelPosPts], centery[curChannelPosPts]], axis=1), axis=1)
+            ptsSet2 = np.expand_dims(np.stack([sampledx_pair[curChannelPosPts], sampledy_pair[curChannelPosPts]], axis=1), axis=1)
+            ptsSet = np.concatenate([ptsSet1, ptsSet2], axis=1)
+            ln_coll = LineCollection(ptsSet, colors='r', linewidths=0.1)
+            ax.add_collection(ln_coll)
+            ax.set_title('Line collection with masked arrays')
+            plt.show()
+
+
+            """
             # Wall part starts
             lossDepthWall = 0
             lossRegXWall = 0
@@ -2778,11 +2929,13 @@ class DepthGuessesBySemantics(nn.Module):
 
 
 
-            subViewInd = 6
+            subViewInd = 3
             pts = wallPts3D[subViewInd, :, 0:3, 0]
             pts = pts[framSelector[subViewInd, :], :].cpu().numpy()
             ptsInterped = wallPtsProjectedToPlane.view(-1,self.smapleDense, 4, 1)
             ptsInterped = ptsInterped[subViewInd, framSelector[subViewInd, :], :, 0].cpu().numpy()
+            pxView = wallX[subViewInd, framSelector[subViewInd, :]].cpu().numpy()
+            pyView = wallY[subViewInd, framSelector[subViewInd, :]].cpu().numpy()
             # fig, axs = plt.subplots(1, 1)
             fig = plt.figure()
             ax = Axes3D(fig)
@@ -2797,8 +2950,28 @@ class DepthGuessesBySemantics(nn.Module):
             plt.xlim([10, 16])
             set_axes_equal(ax)
             plt.xlabel('x')
+            plt.savefig('1.png', dpi = 200)
 
+            cm = plt.get_cmap('magma')
+            viewDisp = dispAct[viewInd, :, :, :].squeeze(0).detach().cpu().numpy()
+            vmax = np.percentile(viewDisp, 90)
+            viewDisp = (cm(viewDisp / vmax) * 255).astype(np.uint8)
+            # pil.fromarray(viewDisp).show()
 
+            fig = plt.figure()
+            plt.imshow(semanFig)
+            plt.scatter(pxView, pyView, c = 'c', s = 0.2)
+            plt.savefig('2.png', dpi=200)
+
+            fig = plt.figure()
+            plt.imshow(viewDisp)
+            plt.scatter(pxView, pyView, c = 'c', s = 0.2)
+            plt.savefig('3.png', dpi=200)
+
+            fig, ax = plt.subplots()
+            ax.scatter(pts[:,0], pts[:,1], c = 'r')
+            ax.scatter(ptsInterped[:, 0], ptsInterped[:, 1], c = 'g')
+            plt.savefig('4.png', dpi=200)
 
             # sampleDense = 10
             fig = plt.figure()
@@ -2807,7 +2980,7 @@ class DepthGuessesBySemantics(nn.Module):
             ax.dist = 4
             ax.scatter(veh_coord2[::sampleDense, 0], veh_coord2[::sampleDense, 1], veh_coord2[::sampleDense, 2],
                        s=0.1, c=colors2[::sampleDense, :])
-            ax.scatter(wallPts3D_view[:, 0, 0], wallPts3D_view[:, 1, 0], wallPts3D_view[:, 2, 0],
+            ax.scatter(wallPts3D_view[  :, 0, 0], wallPts3D_view[:, 1, 0], wallPts3D_view[:, 2, 0],
                        s=0.3, c=wallColors)
 
 
@@ -2837,197 +3010,4 @@ class DepthGuessesBySemantics(nn.Module):
             plt.imshow(semanFig)
             plt.scatter(view2dX, view2dY, c = 'c', s = 0.2)
             # plt.savefig("1.png", dpi = 200)
-
-            """
-            
-            lossDepthWall = 0
-            lossRegXWall = 0
-            lossRegYWall = 0
-
-            wallBackGroundPts = wallTypeMask[channelInd, 0, sampledy, sampledx]
-            wallBackSelection = torch.sum(wallBackGroundPts, 1) > 20
-            # if torch.sum(wallBackSelection) < 20:
-            #     return
-            wallBackGroundPts = wallBackGroundPts[wallBackSelection, :]
-            wallX = sampledx[wallBackSelection, :]
-            wallY = sampledy[wallBackSelection, :]
-            wallChannle = channelInd[wallBackSelection, :]
-            wallDepth = realDepth[wallChannle, 0, wallY, wallX]
-            wallX = wallX.float().cuda()
-            wallY = wallY.float().cuda()
-            wallPts3DCam = torch.stack([wallX * wallDepth, wallY * wallDepth, wallDepth, torch.ones_like(wallDepth)], dim=2).view(-1,4,1)
-            wallPts3DParam = torch.matmul(intrinsic, extrinsic)
-            wallPts3DParam_inv = torch.inverse(wallPts3DParam)
-            wallPts3DParam = wallPts3DParam[wallChannle, :, :].view(-1,4,4)
-            wallPts3DParam_inv = wallPts3DParam_inv[wallChannle, :, :].view(-1,4,4)
-            wallPts3D = torch.matmul(wallPts3DParam_inv, wallPts3DCam).view(-1, self.smapleDense, 4, 1)
-
-            wallPts3D_ms = wallPts3D[:, :, 0:3, 0]
-            wallBackGroundPts_exp = wallBackGroundPts.unsqueeze(2).repeat(1,1,3)
-            meanCenter = torch.sum(wallPts3D_ms * wallBackGroundPts_exp, dim=1, keepdim=True) / torch.sum(wallBackGroundPts_exp, dim=1, keepdim=True)
-            wallPts3D_ms = wallPts3D_ms - meanCenter.repeat(1, wallPts3D_ms.shape[1], 1)
-            wallPts3D_ms = torch.cat([wallPts3D_ms, torch.ones([wallPts3D_ms.shape[0],self.smapleDense,1], device=tdevice)], dim=2)
-
-            A = torch.sum(wallPts3D_ms[:,:,1] * wallBackGroundPts, dim=1) / torch.sum(wallPts3D_ms[:,:,0] * wallBackGroundPts, dim=1)
-            wallPlane = torch.stack([A, -torch.ones_like(A), torch.zeros_like(A), -A * meanCenter[:,0,0] + meanCenter[:,0,1]], dim=1).unsqueeze(1).unsqueeze(1).repeat(1,self.smapleDense,1,1).view(-1,1,4)
-
-
-            # Check
-            # newMean = torch.mean(wallPts3D_ms[:,:,0:3] * wallBackGroundPts_exp, dim=1)
-
-            # framSelector = ((wallChannle == viewInd).float() * wallBackGroundPts.view(-1, self.smapleDense).float()).byte()
-            # subViewInd = 4
-            # center = meanCenter[subViewInd, 0, :].cpu().numpy()
-            # pts = wallPts3D[subViewInd, :, 0:3, 0]
-            # pts = pts[framSelector[subViewInd, :], :].cpu().numpy()
-            #
-            # fig = plt.figure()
-            # ax = Axes3D(fig)
-            # ax.view_init(elev=6., azim=170)
-            # ax.dist = 4
-            # ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2],
-            #            s=0.3, c='c')
-            # ax.scatter(center[0], center[1], center[2],
-            #            s=0.3, c='r')
-            # ax.set_zlim(-10, 10)
-            # plt.ylim([-10, 10])
-            # plt.xlim([10, 16])
-            # set_axes_equal(ax)
-            # plt.xlabel('x')
-            #
-            #
-            # colors = torch.rand((wallPts3D.shape[0], 1, 3)).repeat(1, self.smapleDense, 1)
-            # colors = colors[wallBackGroundPts.byte(), :].cpu().numpy()
-            # ptsView = wallPts3D[:,:,0:3,0][wallBackGroundPts.byte(), :].cpu().numpy()
-            # meanCenter_view = meanCenter[:,0,:].cpu().numpy()
-            # fig = plt.figure()
-            # ax = Axes3D(fig)
-            # ax.view_init(elev=6., azim=170)
-            # ax.dist = 4
-            # ax.scatter(ptsView[:, 0], ptsView[:, 1], ptsView[:, 2],
-            #            s=0.3, c=colors)
-            # ax.scatter(meanCenter_view[:,0], meanCenter_view[:,1], meanCenter_view[:,2],
-            #            s=20, c='r')
-            # ax.set_zlim(-10, 10)
-            # plt.ylim([-10, 10])
-            # plt.xlim([10, 16])
-            # set_axes_equal(ax)
-            # plt.xlabel('x')
-
-            wallPlane = wallPlane / torch.norm(wallPlane[:, :, 0:3], dim=2, keepdim=True).repeat(1, 1, 4)
-            ptsOnPlane = torch.stack([(wallPlane[:,0,1] + wallPlane[:,0,3]) / (-wallPlane[:,0,0]), torch.ones(wallPlane.shape[0], device=tdevice), torch.zeros(wallPlane.shape[0], device=tdevice), torch.ones(wallPlane.shape[0], device=tdevice)], dim=1).unsqueeze(dim = 2)
-            wallPts3D_flat = wallPts3D.view(-1, 4, 1)
-            ptsFromOrgToIntrest = (wallPts3D_flat - ptsOnPlane)[:, 0:3, 0]
-            dirLength = torch.sum(wallPlane[:, 0, 0:3] * ptsFromOrgToIntrest, dim = 1)
-            # dirLength = ptsFromOrgToIntrest[:, 2]
-
-            wallPtsProjectedToPlane = ptsFromOrgToIntrest - (dirLength.unsqueeze(1).repeat(1,3) * wallPlane[:,0,0:3])
-            wallPtsProjectedToPlane = ptsOnPlane[:,0:3,0] + wallPtsProjectedToPlane
-            # roadPtsProjectedToPlane = roadPtsProjectedToPlane.view(-1, self.smapleDense, 3, 1)
-            wallPtsProjectedToPlane = torch.cat([wallPtsProjectedToPlane, torch.ones([wallPtsProjectedToPlane.shape[0],1], device=tdevice)], dim=1)
-            wallPtsProjectedToPlane = wallPtsProjectedToPlane.view(-1,4,1)
-
-
-            wallProjectedNew = torch.matmul(wallPts3DParam, wallPtsProjectedToPlane)
-            wallXNew = wallProjectedNew[:,0,0] / wallProjectedNew[:,2,0]
-            wallYNew = wallProjectedNew[:, 1, 0] / wallProjectedNew[:, 2,0]
-            wallDepthNew = wallProjectedNew[:,2,0]
-
-            wallBackGroundPts = wallBackGroundPts.byte()
-            wallDepthOld = wallDepth[wallBackGroundPts]
-            wallXOld = wallX[wallBackGroundPts]
-            wallYOld = wallY[wallBackGroundPts]
-
-            wallBackGroundPts = wallBackGroundPts.view(-1)
-            wallDepthNew = wallDepthNew[wallBackGroundPts]
-            wallXNew = wallXNew[wallBackGroundPts]
-            wallYNew = wallYNew[wallBackGroundPts]
-
-            lossDepthWall = torch.mean((wallDepthOld - wallDepthNew)**2)
-            lossRegXWall = torch.mean((wallXOld - wallXNew)**2)
-            lossRegYWall = torch.mean((wallYOld - wallYNew)**2)
-
-
-
-
-            # Check
-            ptsck = wallPtsProjectedToPlane
-            ptsck = torch.abs(torch.matmul(wallPlane, ptsck))
-            ptsck = ptsck[:,0,0][wallBackGroundPts]
-
-
-            framSelector = ((wallChannle == viewInd).float() * wallBackGroundPts.view(-1, self.smapleDense).float()).byte()
-            wallPts3D_view = wallPts3D[framSelector, :, :].cpu().numpy()
-            view2dX = wallX[framSelector].cpu().numpy().astype(np.float)
-            view2dY = wallY[framSelector].cpu().numpy().astype(np.float)
-            semanView = semantic[viewInd, :, :].cpu().numpy()
-            semanFig = visualize_semantic(semanView).resize([dispAct.shape[3], dispAct.shape[2]], resample=Image.NEAREST)
-
-            wallColors = torch.rand([framSelector.shape[0], 3], device=tdevice).unsqueeze(1).repeat(1,200,1).view(-1,3)[framSelector.view(-1), :].cpu().numpy()
-            viewInterpedWall = wallPtsProjectedToPlane
-            viewInterpedWall = viewInterpedWall[framSelector.view(-1), :, :].cpu().numpy()
-
-
-            subViewInd = 4
-            center = meanCenter[subViewInd, 0, :].cpu().numpy()
-            pts = wallPts3D[subViewInd, :, 0:3, 0]
-            pts = pts[framSelector[subViewInd, :], :].cpu().numpy()
-            ptsInterped = wallPtsProjectedToPlane.view(-1,self.smapleDense, 4, 1)
-            ptsInterped = ptsInterped[subViewInd, framSelector[subViewInd, :], :, 0].cpu().numpy()
-
-            fig = plt.figure()
-            ax = Axes3D(fig)
-            ax.view_init(elev=6., azim=170)
-            ax.dist = 4
-            ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2],
-                       s=0.3, c='r')
-            ax.scatter(ptsInterped[:, 0], ptsInterped[:, 1], ptsInterped[:, 2],
-                       s=0.3, c='g')
-            ax.scatter(center[0], center[1], center[2],
-                       s=30, c='c')
-            ax.set_zlim(-10, 10)
-            plt.ylim([-10, 10])
-            plt.xlim([10, 16])
-            set_axes_equal(ax)
-            plt.xlabel('x')
-
-
-
-
-            # sampleDense = 10
-            fig = plt.figure()
-            ax = Axes3D(fig)
-            ax.view_init(elev=6., azim=170)
-            ax.dist = 4
-            ax.scatter(veh_coord2[::sampleDense, 0], veh_coord2[::sampleDense, 1], veh_coord2[::sampleDense, 2],
-                       s=0.1, c=colors2[::sampleDense, :])
-            ax.scatter(wallPts3D_view[:, 0, 0], wallPts3D_view[:, 1, 0], wallPts3D_view[:, 2, 0],
-                       s=0.3, c=wallColors)
-
-            ax.set_zlim(-10, 10)
-            plt.ylim([-10, 10])
-            plt.xlim([10, 16])
-            set_axes_equal(ax)
-            plt.xlabel('x')
-
-            fig = plt.figure()
-            ax = Axes3D(fig)
-            ax.view_init(elev=6., azim=170)
-            ax.dist = 4
-            # ax.scatter(veh_coord2[::sampleDense, 0], veh_coord2[::sampleDense, 1], veh_coord2[::sampleDense, 2],
-            #            s=0.1, c=colors2[::sampleDense, :])
-            ax.scatter(viewInterpedWall[:, 0, 0], viewInterpedWall[:, 1, 0], viewInterpedWall[:, 2, 0],
-                       s=0.7, c='r')
-            ax.scatter(wallPts3D_view[:, 0, 0], wallPts3D_view[:, 1, 0], wallPts3D_view[:, 2, 0],
-                       s=0.3, c='g')
-            ax.set_zlim(-10, 10)
-            plt.ylim([-10, 10])
-            plt.xlim([10, 16])
-            set_axes_equal(ax)
-
-
-            fig = plt.figure()
-            plt.imshow(semanFig)
-            plt.scatter(view2dX, view2dY, c = 'c', s = 0.2)
-            plt.savefig("1.png", dpi = 200)
             """
