@@ -1975,11 +1975,11 @@ class DepthGuessesBySemantics(nn.Module):
         self.seman_convx.weight = nn.Parameter(weightsx,requires_grad=False)
         self.seman_convy.weight = nn.Parameter(weightsy,requires_grad=False)
         self.expand = torch.nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
-
+        self.expand_road = torch.nn.MaxPool2d(kernel_size=7, stride=1, padding=3)
     def regBySeman(self, realDepth, dispAct, foredgroundMask, wallTypeMask, groundTypeMask, intrinsic, extrinsic):
         with torch.no_grad():
             maskGrad = torch.abs(self.seman_convx(foredgroundMask)) + torch.abs(self.seman_convy(foredgroundMask))
-            maskGrad = self.expand(maskGrad) * (dispAct > 7e-3).float()
+            maskGrad = self.expand_road(maskGrad) * (dispAct > 7e-3).float()
             maskGrad = torch.clamp(maskGrad, min=3) - 3
             maskGrad[:, :, self.zeroArea, :] = 0
             maskGrad[:, :, :, self.zeroArea] = 0
@@ -2027,9 +2027,15 @@ class DepthGuessesBySemantics(nn.Module):
 
         # Wall Part
         with torch.no_grad():
+            maskGrad = torch.abs(self.seman_convx(foredgroundMask)) + torch.abs(self.seman_convy(foredgroundMask))
+            maskGrad = self.expand(maskGrad) * (dispAct > 7e-3).float()
+            maskGrad = torch.clamp(maskGrad, min=3) - 3
+            maskGrad[:, :, self.zeroArea, :] = 0
+            maskGrad[:, :, :, self.zeroArea] = 0
+            maskGrad = self.expand(maskGrad)
             centerx = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, self.width - self.wdSize)
             centery = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, self.height - self.wdSize)
-            maskGrad = self.expand(maskGrad)
+
 
             onBorderSelection = (maskGrad[self.channelInd_wall, 0, centery, centerx] > 1e-1) * (
                     wallTypeMask[self.channelInd_wall, 0, centery, centerx] == 1)
