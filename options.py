@@ -195,7 +195,11 @@ class MonodepthOptions:
         self.parser.add_argument("--borderSemanReg",
                                  help="if set, experiment on toy problem",
                                  action="store_true")
-        self.parser.add_argument("--borderSemanRegScale",
+        self.parser.add_argument("--borderSemanRegScale_Wall",
+                                 type=float,
+                                 help="change regularization term scale",
+                                 default=1.0)
+        self.parser.add_argument("--borderSemanRegScale_Road",
                                  type=float,
                                  help="change regularization term scale",
                                  default=1.0)

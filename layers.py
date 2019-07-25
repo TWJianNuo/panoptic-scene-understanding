@@ -1978,7 +1978,6 @@ class DepthGuessesBySemantics(nn.Module):
 
     def regBySeman(self, realDepth, dispAct, foredgroundMask, wallTypeMask, groundTypeMask, intrinsic, extrinsic):
         with torch.no_grad():
-            tdevice = torch.device("cuda")
             maskGrad = torch.abs(self.seman_convx(foredgroundMask)) + torch.abs(self.seman_convy(foredgroundMask))
             maskGrad = self.expand(maskGrad) * (dispAct > 7e-3).float()
             maskGrad = torch.clamp(maskGrad, min=3) - 3
@@ -1987,6 +1986,8 @@ class DepthGuessesBySemantics(nn.Module):
 
             centerx = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, self.width - self.wdSize).cuda()
             centery = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, self.height - self.wdSize).cuda()
+            # centerx = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, self.width - self.wdSize)
+            # centery = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, self.height - self.wdSize)
             onBorderSelection = maskGrad[self.channelInd, 0, centery, centerx] > 1e-1
             centerx = centerx[onBorderSelection]
             centery = centery[onBorderSelection]
@@ -2016,15 +2017,13 @@ class DepthGuessesBySemantics(nn.Module):
                 planeParam = torch.Tensor([0,0,1,-meanz]).cuda()
                 planeParamEst[i, 0, :] = planeParam
 
-            depthOld = torch.clamp(realDepth[channelInd, 0, centery, centerx], min = 0.3, max=100)
-            M = torch.matmul(planeParamEst, roadPts3DParam_inv)
-            depthNew = - (M[channelInd, 0, 3] / (M[channelInd, 0, 0] * centerx.float() + M[channelInd, 0, 1] * centery.float() + M[channelInd,0,2]))
-            depthNew = torch.clamp(depthNew, min = 0.3, max= 100)
-            newPts = torch.stack([centerx.float() * depthNew, centery.float() * depthNew, depthNew, torch.ones_like(depthNew)], dim=1).unsqueeze(2)
-            lossRoad = torch.mean(torch.clamp(depthNew.detach() - depthOld, min=0))
-
-            if torch.isnan(lossRoad):
-                lossRoad = 0
+        depthOld = torch.clamp(realDepth[channelInd, 0, centery, centerx], min = 0.3, max=20)
+        M = torch.matmul(planeParamEst, roadPts3DParam_inv)
+        depthNew = - (M[channelInd, 0, 3] / (M[channelInd, 0, 0] * centerx.float() + M[channelInd, 0, 1] * centery.float() + M[channelInd,0,2]))
+        depthNew = torch.clamp(depthNew, min = 0.3)
+        lossRoad = torch.mean(torch.clamp(depthNew.detach() - depthOld, min=0)) * 1e-3
+        if torch.isnan(lossRoad):
+            lossRoad = 0
 
         # Wall Part
         with torch.no_grad():
@@ -2624,7 +2623,8 @@ class DepthGuessesBySemantics(nn.Module):
             # diff = torch.abs(depthOld - depthNew)
             # a = diff.cpu().numpy()
             # loss = torch.mean(torch.clamp(depthOld - depthNew, min=0))
-
+            viewDense = 10
+            roadPtsView = roadPts3DCam[viewInd, :, :, :].permute(1,2,0)[groundTypeMask[viewInd, 0, :, :].byte(), :].cpu().numpy()
             oldPts_view = oldPts[channelInd == viewInd, :].cpu().numpy()
             newPts_view = newPts[channelInd == viewInd, :].cpu().numpy()
             centerx_view = centerx[channelInd == viewInd].cpu().numpy()
@@ -2635,6 +2635,7 @@ class DepthGuessesBySemantics(nn.Module):
             ax.dist = 4
             # ax.scatter(veh_coord2[::sampleDense, 0], veh_coord2[::sampleDense, 1], veh_coord2[::sampleDense, 2], s=0.1, c=colors2[::sampleDense, :])
             ax.scatter(oldPts_view[:, 0], oldPts_view[:, 1], oldPts_view[:, 2], s=0.3, c='r')
+            ax.scatter(roadPtsView[::viewDense, 0], roadPtsView[::viewDense, 1], roadPtsView[::viewDense, 2], s=0.3, c='g')
             ax.scatter(newPts_view[:, 0], newPts_view[:, 1], newPts_view[:, 2], s=0.3, c='c')
             ax.set_zlim(-10, 10)
             plt.ylim([-10, 10])
