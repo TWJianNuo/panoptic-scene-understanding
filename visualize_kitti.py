@@ -52,6 +52,56 @@ def tensor2disp(tensor, ind, vmax = None):
     # pil.fromarray(slice).show()
     return pil.fromarray(slice)
 
+
+class ComputeErrOnBorder(nn.Module):
+    def __init__(self):
+        super(ComputeErrOnBorder, self).__init__()
+        weightsx = torch.Tensor([
+                                [-1., 0., 1.],
+                                [-2., 0., 2.],
+                                [-1., 0., 1.]]).unsqueeze(0).unsqueeze(0)
+
+        weightsy = torch.Tensor([
+                                [1., 2., 1.],
+                                [0., 0., 0.],
+                                [-1., -2., -1.]]).unsqueeze(0).unsqueeze(0)
+
+        self.seman_convx = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+        self.seman_convy = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+
+        self.seman_convx.weight = nn.Parameter(weightsx,requires_grad=False)
+        self.seman_convy.weight = nn.Parameter(weightsy,requires_grad=False)
+        self.expand = torch.nn.MaxPool2d(kernel_size=9, stride=1, padding=4)
+
+        self.onborderErr = 0
+        self.offborderErr = 0
+        self.onborderNum = 0
+        self.offborderNum = 0
+    def forward(self, semanLabel, errMap, errMask):
+        semanLabel = semanLabel.float()
+        maskGrad = torch.abs(self.seman_convx(semanLabel)) + torch.abs(self.seman_convy(semanLabel))
+        maskGrad = self.expand(maskGrad)
+        maskGrad = (maskGrad > 1e-3).float()
+
+        # cm = plt.get_cmap('magma')
+        # viewMaskGrad = maskGrad[0, :, :, :].squeeze(0).detach().cpu().numpy()
+        # vmax = np.percentile(viewMaskGrad, 99.5)
+        # viewMaskGrad = (cm(viewMaskGrad / vmax) * 255).astype(np.uint8)
+        # pil.fromarray(viewMaskGrad).show()
+
+        maskGrad = maskGrad[0,0,:,:].cpu().numpy()
+        # errOnEdge = np.sum(errMap * maskGrad) / np.sum((maskGrad * errMask) > 0)
+        self.onborderErr = self.onborderErr + np.sum(errMap * maskGrad)
+        self.offborderErr = self.offborderErr + np.sum(errMap) - np.sum(errMap * maskGrad)
+        self.onborderNum = self.onborderNum + np.sum((maskGrad * errMask) > 0)
+        self.offborderNum = self.offborderNum + np.sum((errMask) > 0)
+
+    def getMetric(self):
+        print("aveErrOnBorder %f" % (self.onborderErr / self.onborderNum))
+        print("aveErrOffBorder %f" % (self.offborderErr / self.offborderNum))
+        print("errOnborderPercentile %f" % (self.onborderErr / (self.onborderErr + self.offborderErr)))
+        print("errOffborderPercentile %f" % (self.offborderErr / (self.onborderErr + self.offborderErr)))
+
 class Tensor23dPts:
     def __init__(self, height = 375, width = 1242):
         self.height = height
@@ -206,19 +256,26 @@ class Tensor23dPts:
 class ViewErrorMap():
     def __init__(self):
         self.idt = "errMap"
-        self.cm = plt.get_cmap('magma')
+        self.cm = plt.get_cmap('spring')
     def viewErr(self, est, gt, viewInd = 0):
         width = gt.shape[3]
         height = gt.shape[2]
         est_resized = F.interpolate(est, [height, width], mode='bilinear', align_corners=False)
         gtMap = gt[viewInd, 0, :, :].cpu().numpy() + 1e-5
         estMap = est_resized[viewInd, 0, :, :].cpu().numpy()
-
+        mask = gtMap > 1e-4
         thresh = np.maximum((gtMap / estMap), (estMap / gtMap)) * mask.astype(np.float)
-        thresh = thresh / 1.4
+        thresh = (thresh > 1.25).astype(np.float)
 
         viewdisp = (self.cm(thresh)* 255).astype(np.uint8)
-        return pil.fromarray(viewdisp)
+        visRe = np.array(pil.fromarray(viewdisp))[:,:,0:3]
+        visRe[np.logical_not(mask), :] = np.array([0,0,0])
+        # pil.fromarray(viewdisp).show()
+        # estWidth = est.shape[3]
+        # estHeight = est.shape[2]
+        # thresh = np.array(pil.fromarray(thresh.astype(np.uint8)).resize([estWidth, estHeight]))
+        # mask = np.array(pil.fromarray(mask.astype(np.uint8)).resize([estWidth, estHeight]))
+        return pil.fromarray(visRe).resize([est.shape[3], est.shape[2]], resample=pil.BILINEAR), thresh, mask
 
 
 
@@ -301,7 +358,7 @@ def evaluate(opt):
                                            opt.height, opt.width, opt.frame_ids, 4, is_train=False, tag=opt.dataset, load_meta=True)
     elif opt.dataset == 'kitti':
         dataset = datasets.KITTIRAWDataset(opt.data_path, filenames,
-                                           opt.height, opt.width, opt.frame_ids, 4, is_train=False, tag=opt.dataset)
+                                           opt.height, opt.width, opt.frame_ids, 4, is_train=False, tag=opt.dataset, load_meta = True)
     else:
         raise ValueError("No predefined dataset")
     dataloader = DataLoader(dataset, batch_size=opt.batch_size, shuffle=False, num_workers=opt.num_workers,
@@ -329,11 +386,11 @@ def evaluate(opt):
     sfx = torch.nn.Softmax(dim=1)
     mergeDisp = Merge_MultDisp(opt.scales, batchSize = opt.batch_size, isMulChannel = opt.isMulChannel)
     svRoot = '/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/figure_visual'
-    index = 4
+    index = 0
     isvisualize = True
     viewEdgeMerge = False
     isHist = False
-    useGtSeman = False
+    useGtSeman = True
     useSeman = False
     viewSurfaceNormal = True
     viewSelfOcclu = True
@@ -345,9 +402,14 @@ def evaluate(opt):
     viewRandomSample = False
     viewSemanReg = False
     viewErr = True
+    isComputeErrBorder = True
     height = 288
     width = 960
     tensor23dPts = Tensor23dPts(height=height, width=width)
+
+    if isComputeErrBorder:
+        compErrBorder = ComputeErrOnBorder()
+        compErrBorder.cuda()
 
     if isHist:
         rec = np.zeros((19,100))
@@ -400,10 +462,6 @@ def evaluate(opt):
     #     borderSim.cuda()
     with torch.no_grad():
         for idx, inputs in enumerate(dataloader):
-            # if idx == 12:
-            #     a = 1
-            if idx >= 30:
-                break
             for key, ipt in inputs.items():
                 if not(key == 'height' or key == 'width' or key == 'tag' or key == 'cts_meta'):
                     inputs[key] = ipt.to(torch.device("cuda"))
@@ -435,7 +493,9 @@ def evaluate(opt):
                 # _, mul_depthMap = disp_to_depth(outputs[('mul_disp', 0)], 0.1, 100)
                 # mul_depthMap = mul_depthMap * STEREO_SCALE_FACTOR
                 if viewErr:
-                    errFig = viewerr.viewErr(est=depthMap, gt=inputs["depth_gt"], viewInd=index)
+                    errFig, errMap, errMask = viewerr.viewErr(est=depthMap, gt=inputs["depth_gt"], viewInd=index)
+                    if isComputeErrBorder:
+                        compErrBorder(inputs['seman_gt_eval'].unsqueeze(0), errMap, errMask)
 
                 if viewDispUp:
                     fig_dispup = compDispUp.visualize(scaled_disp, viewindex=index)
@@ -702,7 +762,10 @@ def evaluate(opt):
                 # a = inputs['seman_gt_eval']
                 # scaled_disp, _ = disp_to_depth(outputs[('disp', 0)], 0.1, 100)
                 print("%dth saved" % idx)
+    if isComputeErrBorder:
+        compErrBorder.getMetric()
     # If compute the histogram
+
     if isHist:
         svPath = '/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/mul_channel_depth'
         carId = 13

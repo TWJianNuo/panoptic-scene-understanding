@@ -181,7 +181,7 @@ class Trainer:
             self.wallType = [2, 3, 4]  # Building, wall, fence
             self.roadType = [0, 1, 9]  # road, sidewalk, terrain
             self.foregroundType = [5, 6, 7, 11, 12, 13, 14, 15, 16, 17, 18]  # pole, traffic light, traffic sign, person, rider, car, truck, bus, train, motorcycle, bicycle
-            self.borderSemanReg = DepthGuessesBySemantics(batchNum=self.opt.batch_size)
+            self.borderSemanReg = DepthGuessesBySemantics(batchNum=self.opt.batch_size, width=self.opt.width, height=self.opt.height)
             self.borderSemanReg.cuda()
 
 

@@ -328,7 +328,7 @@ def evaluate(opt):
         rdSampleSeman.cuda()
 
     if viewDepthGuess:
-        depthGuess = DepthGuessesBySemantics()
+        depthGuess = DepthGuessesBySemantics(batchNum=opt.batch_size, width=width, height=height)
         depthGuess.cuda()
     # if viewBorderSimilarity:
     #     borderSim = BorderSimilarity()

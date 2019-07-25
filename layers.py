@@ -1924,16 +1924,18 @@ class RandomSampleNeighbourPts(nn.Module):
 """
 
 class DepthGuessesBySemantics(nn.Module):
-    def __init__(self, batchNum=10):
+    def __init__(self, width, height, batchNum=10):
         super(DepthGuessesBySemantics, self).__init__()
         self.wdSize = 11  # Generate points within a window of 5 by 5
         self.ptsNum = 500  # Each image generate 50000 number of points
         self.smapleDense = 200  # For each position, sample 20 points
         self.batchNum = batchNum
+        self.width = width
+        self.height = height
         self.init_conv()
         self.channelInd = list()
         for i in range(self.batchNum):
-            self.channelInd.append(torch.ones(self.ptsNum) * i)
+            self.channelInd.append(torch.ones(self.ptsNum * 100) * i)
         self.channelInd = torch.cat(self.channelInd, dim=0).long().cuda()
 
         self.channelInd_wall = list()
@@ -1942,6 +1944,14 @@ class DepthGuessesBySemantics(nn.Module):
         self.channelInd_wall = torch.cat(self.channelInd_wall, dim=0).long().cuda()
 
         self.zeroArea = torch.Tensor([0,1,2,3,-1,-2,-3,-4]).long()
+
+        yy, xx = torch.meshgrid([torch.arange(0, self.height), torch.arange(0, self.width)])
+        xx = xx.float().unsqueeze(0).repeat(self.batchNum, 1, 1)
+        yy = yy.float().unsqueeze(0).repeat(self.batchNum, 1, 1)
+        self.xx = xx.contiguous().view(-1).cuda()
+        self.yy = yy.contiguous().view(-1).cuda()
+        self.ones = torch.ones(self.xx.shape[0], device=torch.device("cuda"))
+        self.tdevice = torch.device("cuda")
     def init_conv(self):
         weightsx = torch.Tensor([
                                 [-1., 0., 1.],
@@ -1967,7 +1977,6 @@ class DepthGuessesBySemantics(nn.Module):
         self.expand = torch.nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
 
     def regBySeman(self, realDepth, dispAct, foredgroundMask, wallTypeMask, groundTypeMask, intrinsic, extrinsic):
-
         with torch.no_grad():
             tdevice = torch.device("cuda")
             maskGrad = torch.abs(self.seman_convx(foredgroundMask)) + torch.abs(self.seman_convy(foredgroundMask))
@@ -1976,84 +1985,51 @@ class DepthGuessesBySemantics(nn.Module):
             maskGrad[:, :, self.zeroArea, :] = 0
             maskGrad[:, :, :, self.zeroArea] = 0
 
-            height = dispAct.shape[2]
-            width = dispAct.shape[3]
-
-            centerx = torch.LongTensor(self.ptsNum * self.batchNum).random_(self.wdSize, width - self.wdSize)
-            centery = torch.LongTensor(self.ptsNum * self.batchNum).random_(self.wdSize, height - self.wdSize)
-
+            centerx = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, self.width - self.wdSize).cuda()
+            centery = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, self.height - self.wdSize).cuda()
             onBorderSelection = maskGrad[self.channelInd, 0, centery, centerx] > 1e-1
-            centery = centery[onBorderSelection].unsqueeze(1).repeat([1, self.smapleDense])
-            centerx = centerx[onBorderSelection].unsqueeze(1).repeat([1, self.smapleDense])
-            channelInd = self.channelInd[onBorderSelection].unsqueeze(1).repeat([1, self.smapleDense])
+            centerx = centerx[onBorderSelection]
+            centery = centery[onBorderSelection]
+            channelInd = self.channelInd[onBorderSelection]
 
-            validNum = centerx.shape[0]
-            bx = torch.LongTensor(validNum * self.smapleDense).random_(-self.wdSize, self.wdSize + 1).view(validNum, self.smapleDense)
-            by = torch.LongTensor(validNum * self.smapleDense).random_(-7, 8).view(validNum, self.smapleDense)
+            roadBackGroundPts = groundTypeMask[channelInd, 0, centery, centerx].byte()
+            onBorderSelection[onBorderSelection] = roadBackGroundPts
+            channelInd = channelInd[roadBackGroundPts]
+            centerx = centerx[roadBackGroundPts]
+            centery = centery[roadBackGroundPts]
 
-            sampledx = centerx + bx
-            sampledy = centery + by
-
-            lossRoad = 0
-            # lossWall = 0
-
-            roadBackGroundPts = groundTypeMask[channelInd, 0, sampledy, sampledx]
-            roadBackSelection = torch.sum(roadBackGroundPts, 1) > 20
-
-            # wallBackGroundPts = wallTypeMask[channelInd, 0, sampledy, sampledx]
-            # wallBackSelection = torch.sum(wallBackGroundPts, 1) > 20
-
-        if torch.sum(roadBackSelection) > 20:
-            roadBackGroundPts = roadBackGroundPts[roadBackSelection, :]
-            roadX = sampledx[roadBackSelection, :]
-            roadY = sampledy[roadBackSelection, :]
-            roadChannle = channelInd[roadBackSelection, :]
-            roadDepth = realDepth[roadChannle, 0, roadY, roadX]
-            roadX = roadX.float().cuda()
-            roadY = roadY.float().cuda()
-            roadPts3DCam = torch.stack([roadX * roadDepth, roadY * roadDepth, roadDepth, torch.ones_like(roadDepth)],
-                                       dim=2).view(-1, 4, 1)
+            # Road
+            realDepth_flat = realDepth.view(-1)
+            roadPts3DCam = torch.stack([self.xx * realDepth_flat, self.yy * realDepth_flat, realDepth.view(-1), self.ones], dim=1).view(self.batchNum, -1, 4).permute(0,2,1)
             roadPts3DParam = torch.matmul(intrinsic, extrinsic)
             roadPts3DParam_inv = torch.inverse(roadPts3DParam)
-            roadPts3DParam = roadPts3DParam[roadChannle, :, :].view(-1, 4, 4)
-            roadPts3DParam_inv = roadPts3DParam_inv[roadChannle, :, :].view(-1, 4, 4)
-            roadPts3D = torch.matmul(roadPts3DParam_inv, roadPts3DCam).view(-1, self.smapleDense, 4, 1)
-            k_ground = (torch.sum(roadPts3D[:, :, 2, 0] * roadBackGroundPts, dim=1) / torch.sum(roadBackGroundPts,
-                                                                                                dim=1))
-            roadPlane = torch.stack([torch.zeros(roadPts3D.shape[0], device=torch.device('cuda')),
-                                     torch.zeros(roadPts3D.shape[0], device=torch.device('cuda')),
-                                     torch.ones(roadPts3D.shape[0], device=torch.device('cuda')), -k_ground], dim=1)
-            roadPlane = roadPlane.unsqueeze(dim=1).repeat(1, self.smapleDense, 1, 1).view(-1, 1, 4)
+            roadPts3DCam = torch.matmul(roadPts3DParam_inv, roadPts3DCam)
+            roadPts3DCam = roadPts3DCam.view(self.batchNum, 4, self.height, self.width)
 
-            ptsOnPlane = torch.stack(
-                [torch.zeros(roadPlane.shape[0], device=tdevice), torch.zeros(roadPlane.shape[0], device=tdevice),
-                 -roadPlane[:, 0, 3], torch.ones(roadPlane.shape[0], device=tdevice)], dim=1).unsqueeze(dim=2)
-            roadPts3D_flat = roadPts3D.view(-1, 4, 1)
-            ptsFromOrgToIntrest = (roadPts3D_flat - ptsOnPlane)[:, 0:3, 0]
-            dirLength = ptsFromOrgToIntrest[:, 2]
-            roadPtsProjectedToPlane = ptsFromOrgToIntrest - (dirLength.unsqueeze(1).repeat(1, 3) * roadPlane[:, 0, 0:3])
-            roadPtsProjectedToPlane = ptsOnPlane[:, 0:3, 0] + roadPtsProjectedToPlane
-            roadPtsProjectedToPlane = torch.cat(
-                [roadPtsProjectedToPlane, torch.ones([roadPtsProjectedToPlane.shape[0], 1], device=tdevice)], dim=1)
-            roadPtsProjectedToPlane = roadPtsProjectedToPlane.view(-1, 4, 1)
-            roadProjectedNew = torch.matmul(roadPts3DParam, roadPtsProjectedToPlane)
-            roadDepthNew = roadProjectedNew[:, 2, 0]
+            planeParamEst = torch.ones(self.batchNum, 1, 4, device=self.tdevice)
+            for i in range(self.batchNum):
+                roadPts = roadPts3DCam[i, :, groundTypeMask[i, 0, :, :].byte()][0:3, :]
+                for j in range(4):
+                    meanz = torch.mean(roadPts[2,:])
+                    selected = torch.abs(roadPts[2,:] - meanz) < 0.5
+                    roadPts = roadPts[:,selected]
+                planeParam = torch.Tensor([0,0,1,-meanz]).cuda()
+                planeParamEst[i, 0, :] = planeParam
 
-            roadBackGroundPts = roadBackGroundPts.byte()
-            roadDepthOld = roadDepth[roadBackGroundPts]
+            depthOld = torch.clamp(realDepth[channelInd, 0, centery, centerx], min = 0.3, max=100)
+            M = torch.matmul(planeParamEst, roadPts3DParam_inv)
+            depthNew = - (M[channelInd, 0, 3] / (M[channelInd, 0, 0] * centerx.float() + M[channelInd, 0, 1] * centery.float() + M[channelInd,0,2]))
+            depthNew = torch.clamp(depthNew, min = 0.3, max= 100)
+            newPts = torch.stack([centerx.float() * depthNew, centery.float() * depthNew, depthNew, torch.ones_like(depthNew)], dim=1).unsqueeze(2)
+            lossRoad = torch.mean(torch.clamp(depthNew.detach() - depthOld, min=0))
 
-            roadBackGroundPts = roadBackGroundPts.view(-1)
-            roadDepthNew = roadDepthNew[roadBackGroundPts]
-
-            forgroundRoad = ((roadDepthNew > 1e-1) * (roadDepthNew < 100) * (roadDepthOld < 100)).float()
-            lossRoad = torch.sum(torch.clamp(roadDepthNew.detach() - roadDepthOld, min=0) * forgroundRoad) / torch.sum(forgroundRoad) * 0.1
             if torch.isnan(lossRoad):
                 lossRoad = 0
 
-
+        # Wall Part
         with torch.no_grad():
-            centerx = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, width - self.wdSize)
-            centery = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, height - self.wdSize)
+            centerx = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, self.width - self.wdSize)
+            centery = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, self.height - self.wdSize)
             maskGrad = self.expand(maskGrad)
 
             onBorderSelection = (maskGrad[self.channelInd_wall, 0, centery, centerx] > 1e-1) * (
@@ -2070,7 +2046,6 @@ class DepthGuessesBySemantics(nn.Module):
             sampledy_pair = centery + by
 
             onBackSelection = wallTypeMask[channelInd, 0, sampledy_pair, sampledx_pair] == 1
-            # onBorderSelection[onBorderSelection] = onBackSelection
             centery = centery[onBackSelection]
             centerx = centerx[onBackSelection]
             channelInd = channelInd[onBackSelection]
@@ -2083,65 +2058,6 @@ class DepthGuessesBySemantics(nn.Module):
         lossWall = torch.mean(torch.clamp(sourceDisp - targetDisp.detach(), min=0)) * 0.1
         if torch.isnan(lossWall):
             lossWall = 0
-        # Wall
-        # if torch.sum(wallBackSelection) > 20:
-        #     wallBackGroundPts = wallBackGroundPts[wallBackSelection, :]
-        #     wallX = sampledx[wallBackSelection, :]
-        #     wallY = sampledy[wallBackSelection, :]
-        #     wallChannle = channelInd[wallBackSelection, :]
-        #     wallDepth = realDepth[wallChannle, 0, wallY, wallX]
-        #     wallX = wallX.float().cuda()
-        #     wallY = wallY.float().cuda()
-        #     wallPts3DCam = torch.stack([wallX * wallDepth, wallY * wallDepth, wallDepth, torch.ones_like(wallDepth)],
-        #                                dim=2).view(-1, 4, 1)
-        #     wallPts3DParam = torch.matmul(intrinsic, extrinsic)
-        #     wallPts3DParam_inv = torch.inverse(wallPts3DParam)
-        #     wallPts3DParam = wallPts3DParam[wallChannle, :, :].view(-1, 4, 4)
-        #     wallPts3DParam_inv = wallPts3DParam_inv[wallChannle, :, :].view(-1, 4, 4)
-        #     wallPts3D = torch.matmul(wallPts3DParam_inv, wallPts3DCam).view(-1, self.smapleDense, 4, 1)
-        #
-        #     a = torch.sum((wallPts3D[:, :, 1, 0] * wallBackGroundPts) ** 2, dim=1)  # y.T @ y
-        #     b = torch.sum((wallPts3D[:, :, 1, 0] * wallBackGroundPts), dim=1)  # y.T @ 1
-        #     c = b  # 1 @ y.T
-        #     d = torch.sum(wallBackGroundPts, dim=1)  # 1.T @ 1
-        #     m1 = torch.sum((wallPts3D[:, :, 1, 0] * wallPts3D[:, :, 0, 0] * wallBackGroundPts), dim=1)  # -x.T @ y
-        #     m2 = torch.sum((wallPts3D[:, :, 0, 0] * wallBackGroundPts), dim=1)  # -x.T @ 1
-        #     invScale = 1 / (a * d - b * c)
-        #     normal = (torch.abs(invScale) < 1e4).float()
-        #     invMatrix = invScale.view(-1, 1, 1).repeat(1, 2, 2) * torch.cat(
-        #         [torch.stack([d, -b], dim=1).view(-1, 1, 2), torch.stack([-c, a], dim=1).view(-1, 1, 2)], dim=1)
-        #     equRight = torch.stack([m1, m2], dim=1).view(-1, 1, 2)
-        #     wallPlaneComp = torch.matmul(equRight, invMatrix)
-        #     wallPlane = torch.stack([-torch.ones(wallBackGroundPts.shape[0], device=tdevice), wallPlaneComp[:, 0, 0],
-        #                              torch.zeros(wallBackGroundPts.shape[0], device=tdevice), wallPlaneComp[:, 0, 1]],
-        #                             dim=1).unsqueeze(1).unsqueeze(1).repeat(1, self.smapleDense, 1, 1).view(-1, 1, 4)
-        #     wallPlane = wallPlane / torch.norm(wallPlane[:, :, 0:3], dim=2, keepdim=True).repeat(1, 1, 4)
-        #
-        #     ptsOnPlane = torch.stack([(wallPlane[:, 0, 1] + wallPlane[:, 0, 3]) / (-wallPlane[:, 0, 0]),
-        #                               torch.ones(wallPlane.shape[0], device=tdevice),
-        #                               torch.zeros(wallPlane.shape[0], device=tdevice),
-        #                               torch.ones(wallPlane.shape[0], device=tdevice)], dim=1).unsqueeze(dim=2)
-        #     wallPts3D_flat = wallPts3D.view(-1, 4, 1)
-        #     ptsFromOrgToIntrest = (wallPts3D_flat - ptsOnPlane)[:, 0:3, 0]
-        #     dirLength = torch.sum(wallPlane[:, 0, 0:3] * ptsFromOrgToIntrest, dim=1)
-        #
-        #     wallPtsProjectedToPlane = ptsFromOrgToIntrest - (dirLength.unsqueeze(1).repeat(1, 3) * wallPlane[:, 0, 0:3])
-        #     wallPtsProjectedToPlane = ptsOnPlane[:, 0:3, 0] + wallPtsProjectedToPlane
-        #     wallPtsProjectedToPlane = torch.cat(
-        #         [wallPtsProjectedToPlane, torch.ones([wallPtsProjectedToPlane.shape[0], 1], device=tdevice)], dim=1)
-        #     wallPtsProjectedToPlane = wallPtsProjectedToPlane.view(-1, 4, 1)
-        #
-        #     wallProjectedNew = torch.matmul(wallPts3DParam, wallPtsProjectedToPlane)
-        #     wallDepthNew = wallProjectedNew[:, 2, 0]
-        #
-        #     wallBackGroundPts = wallBackGroundPts.byte()
-        #     wallDepthOld = wallDepth[wallBackGroundPts]
-        #     normal = normal.unsqueeze(1).repeat(1, self.smapleDense)[wallBackGroundPts]
-        #
-        #     wallBackGroundPts = wallBackGroundPts.view(-1)
-        #     wallDepthNew = wallDepthNew[wallBackGroundPts]
-        #
-        #     lossWall = torch.mean((wallDepthOld - wallDepthNew.detach()) ** 2 * normal) * 1e-1
 
         return lossRoad, lossWall
 
@@ -2586,9 +2502,12 @@ class DepthGuessesBySemantics(nn.Module):
             set_axes_equal(ax)
 
 
+            semanView = semantic[viewInd, :, :].cpu().numpy()
+            semanFig = visualize_semantic(semanView).resize([dispAct.shape[3], dispAct.shape[2]], resample=Image.NEAREST)
 
 
-            tdevice = torch.device("cuda")
+
+            # tdevice = torch.device("cuda")
 
             maskGrad = torch.abs(self.seman_convx(foredgroundMask)) + torch.abs(self.seman_convy(foredgroundMask))
             maskGrad = self.expand(maskGrad) * (dispAct > 7e-3).float()
@@ -2602,113 +2521,121 @@ class DepthGuessesBySemantics(nn.Module):
             viewMaskGrad = (cm(viewMaskGrad / vmax) * 255).astype(np.uint8)
             pil.fromarray(viewMaskGrad).show()
 
-            height = dispAct.shape[2]
-            width = dispAct.shape[3]
+            # height = dispAct.shape[2]
+            # width = dispAct.shape[3]
+            # centerx = torch.LongTensor(self.ptsNum * self.batchNum).random_(self.wdSize, width - self.wdSize)
+            # centery = torch.LongTensor(self.ptsNum * self.batchNum).random_(self.wdSize, height - self.wdSize)
+            # onBorderSelection = maskGrad[self.channelInd, 0, centery, centerx] > 1e-1
+            # centery = centery[onBorderSelection].unsqueeze(1).repeat([1, self.smapleDense])
+            # centerx = centerx[onBorderSelection].unsqueeze(1).repeat([1, self.smapleDense])
+            # channelInd = self.channelInd[onBorderSelection].unsqueeze(1).repeat([1, self.smapleDense])
+            # validNum = centerx.shape[0]
+            # bx = torch.LongTensor(validNum * self.smapleDense).random_(-self.wdSize, self.wdSize + 1).view(validNum, self.smapleDense)
+            # by = torch.LongTensor(validNum * self.smapleDense).random_(-7, 8).view(validNum, self.smapleDense)
+            # sampledx = centerx + bx
+            # sampledy = centery + by
 
-            centerx = torch.LongTensor(self.ptsNum * self.batchNum).random_(self.wdSize, width - self.wdSize)
-            centery = torch.LongTensor(self.ptsNum * self.batchNum).random_(self.wdSize, height - self.wdSize)
-
+            centerx = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, self.width - self.wdSize).cuda()
+            centery = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, self.height - self.wdSize).cuda()
             onBorderSelection = maskGrad[self.channelInd, 0, centery, centerx] > 1e-1
-            centery = centery[onBorderSelection].unsqueeze(1).repeat([1, self.smapleDense])
-            centerx = centerx[onBorderSelection].unsqueeze(1).repeat([1, self.smapleDense])
-            channelInd = self.channelInd[onBorderSelection].unsqueeze(1).repeat([1, self.smapleDense])
+            centerx = centerx[onBorderSelection]
+            centery = centery[onBorderSelection]
+            channelInd = self.channelInd[onBorderSelection]
 
-            validNum = centerx.shape[0]
-            bx = torch.LongTensor(validNum * self.smapleDense).random_(-self.wdSize, self.wdSize + 1).view(validNum,
-                                                                                                           self.smapleDense)
-            by = torch.LongTensor(validNum * self.smapleDense).random_(-7, 8).view(validNum, self.smapleDense)
+            roadBackGroundPts = groundTypeMask[channelInd, 0, centery, centerx].byte()
+            onBorderSelection[onBorderSelection] = roadBackGroundPts
+            channelInd = channelInd[roadBackGroundPts]
+            centerx = centerx[roadBackGroundPts]
+            centery = centery[roadBackGroundPts]
 
-            sampledx = centerx + bx
-            sampledy = centery + by
-
-
-
-            lossDepthRoad = 0
-            lossRegXRoad = 0
-            lossRegYRoad = 0
-
-            roadBackGroundPts = groundTypeMask[channelInd, 0, sampledy, sampledx]
-            roadBackSelection = torch.sum(roadBackGroundPts, 1) > 20
-            # if torch.sum(roadBackSelection) < 20:
-            #     return
-            roadBackGroundPts = roadBackGroundPts[roadBackSelection, :]
-            roadX = sampledx[roadBackSelection, :]
-            roadY = sampledy[roadBackSelection, :]
-            roadChannle = channelInd[roadBackSelection, :]
-            roadDepth = realDepth[roadChannle, 0, roadY, roadX]
-            roadX = roadX.float().cuda()
-            roadY = roadY.float().cuda()
-            roadPts3DCam = torch.stack([roadX * roadDepth, roadY * roadDepth, roadDepth, torch.ones_like(roadDepth)], dim=2).view(-1,4,1)
+            # Road
+            realDepth_flat = realDepth.view(-1)
+            roadPts3DCam = torch.stack([self.xx * realDepth_flat, self.yy * realDepth_flat, realDepth.view(-1), self.ones], dim=1).view(self.batchNum, -1, 4).permute(0,2,1)
             roadPts3DParam = torch.matmul(intrinsic, extrinsic)
             roadPts3DParam_inv = torch.inverse(roadPts3DParam)
-            roadPts3DParam = roadPts3DParam[roadChannle, :, :].view(-1,4,4)
-            roadPts3DParam_inv = roadPts3DParam_inv[roadChannle, :, :].view(-1,4,4)
-            roadPts3D = torch.matmul(roadPts3DParam_inv, roadPts3DCam).view(-1, self.smapleDense, 4, 1)
-            k_ground = (torch.sum(roadPts3D[:,:,2,0] * roadBackGroundPts, dim=1) / torch.sum(roadBackGroundPts, dim=1))
-            roadPlane = torch.stack([torch.zeros(roadPts3D.shape[0], device=torch.device('cuda')), torch.zeros(roadPts3D.shape[0], device=torch.device('cuda')), torch.ones(roadPts3D.shape[0], device=torch.device('cuda')), -k_ground], dim=1)
-            roadPlane = roadPlane.unsqueeze(dim=1).repeat(1,self.smapleDense,1,1).view(-1, 1, 4)
+            roadPts3DCam = torch.matmul(roadPts3DParam_inv, roadPts3DCam)
+            roadPts3DCam = roadPts3DCam.view(self.batchNum, 4, self.height, self.width)
 
-
-            ptsOnPlane = torch.stack([torch.zeros(roadPlane.shape[0], device=tdevice), torch.zeros(roadPlane.shape[0], device=tdevice), -roadPlane[:, 0, 3], torch.ones(roadPlane.shape[0], device=tdevice)], dim=1).unsqueeze(dim = 2)
-            roadPts3D_flat = roadPts3D.view(-1, 4, 1)
-            ptsFromOrgToIntrest = (roadPts3D_flat - ptsOnPlane)[:, 0:3, 0]
-            # dirLength = torch.sum(roadPlane[:, 0, 0:3] * ptsFromOrgToIntrest[:, 0:3], dim = 1)
-            dirLength = ptsFromOrgToIntrest[:, 2]
-            roadPtsProjectedToPlane = ptsFromOrgToIntrest - (dirLength.unsqueeze(1).repeat(1,3) * roadPlane[:,0,0:3])
-            roadPtsProjectedToPlane = ptsOnPlane[:,0:3,0] + roadPtsProjectedToPlane
-            # roadPtsProjectedToPlane = roadPtsProjectedToPlane.view(-1, self.smapleDense, 3, 1)
-            roadPtsProjectedToPlane = torch.cat([roadPtsProjectedToPlane, torch.ones([roadPtsProjectedToPlane.shape[0],1], device=tdevice)], dim=1)
-            roadPtsProjectedToPlane = roadPtsProjectedToPlane.view(-1,4,1)
-            roadProjectedNew = torch.matmul(roadPts3DParam, roadPtsProjectedToPlane)
-            roadXNew = roadProjectedNew[:,0,0] / roadProjectedNew[:,2,0]
-            roadYNew = roadProjectedNew[:, 1, 0] / roadProjectedNew[:, 2,0]
-            roadDepthNew = roadProjectedNew[:,2,0]
-
-            roadBackGroundPts = roadBackGroundPts.byte()
-            roadDepthOld = roadDepth[roadBackGroundPts]
-            roadXOld = roadX[roadBackGroundPts]
-            roadYOld = roadY[roadBackGroundPts]
-
-            roadBackGroundPts = roadBackGroundPts.view(-1)
-            roadDepthNew = roadDepthNew[roadBackGroundPts]
-            roadXNew = roadXNew[roadBackGroundPts]
-            roadYNew = roadYNew[roadBackGroundPts]
-
-            # furtherSafeCheck = roadDepthNew > 1e-1
-            # if torch.sum(furtherSafeCheck) < 20:
-            #     return
-            # lossDepthRoad = torch.mean((roadDepthOld - roadDepthNew)**2)
-            # lossRegXRoad = torch.mean((roadXOld - roadXNew)**2)
-            # lossRegYRoad = torch.mean((roadYOld - roadYNew)**2)
-
-            # Check
-            ptsck = roadPtsProjectedToPlane
-            ptsck = torch.abs(torch.matmul(roadPlane, ptsck))
-            ptsck = ptsck[:,0,0][roadBackGroundPts]
-
-
-            framSelector = ((roadChannle == viewInd).float() * roadBackGroundPts.view(-1, self.smapleDense).float()).byte()
-            roadPts3D_view = roadPts3D[framSelector, :, :].cpu().numpy()
-            view2dX = roadX[framSelector].cpu().numpy().astype(np.float)
-            view2dY = roadY[framSelector].cpu().numpy().astype(np.float)
-            semanView = semantic[viewInd, :, :].cpu().numpy()
-            semanFig = visualize_semantic(semanView).resize([dispAct.shape[3], dispAct.shape[2]], resample=Image.NEAREST)
-
-            viewInterpedRoad = roadPtsProjectedToPlane
-            viewInterpedRoad = viewInterpedRoad[framSelector.view(-1), :, :].cpu().numpy()
-
-
+            # roadPts3DCam_view = roadPts3DCam[viewInd, :, :].permute(1,0).cpu().numpy()
             # sampleDense = 10
+            # fig = plt.figure()
+            # ax = Axes3D(fig)
+            # ax.view_init(elev=6., azim=170)
+            # ax.dist = 4
+            # ax.scatter(roadPts3DCam_view[::sampleDense, 0], roadPts3DCam_view[::sampleDense, 1], roadPts3DCam_view[::sampleDense, 2], s=0.1, c = 'r')
+            # ax.scatter(veh_coord[::sampleDense, 0], veh_coord[::sampleDense, 1], veh_coord[::sampleDense, 2], s=0.1, c='g')
+            # ax.set_zlim(-10, 10)
+            # plt.ylim([-10, 10])
+            # plt.xlim([10, 16])
+            # set_axes_equal(ax)
+
+            # roadPts3DCam = roadPts3DCam.view(self.batchNum, 4, self.height, self.width)
+            # roadPts3DCam_view = roadPts3DCam[viewInd, :, groundTypeMask[viewInd, 0, :, :].byte()].permute(1,0).cpu().numpy()
+            # sampleDense = 10
+            # fig = plt.figure()
+            # ax = Axes3D(fig)
+            # ax.view_init(elev=6., azim=170)
+            # ax.dist = 4
+            # ax.scatter(roadPts3DCam_view[::sampleDense, 0], roadPts3DCam_view[::sampleDense, 1], roadPts3DCam_view[::sampleDense, 2], s=0.1, c = 'r')
+            # ax.scatter(veh_coord[::sampleDense, 0], veh_coord[::sampleDense, 1], veh_coord[::sampleDense, 2], s=0.1, c='g')
+            # ax.set_zlim(-10, 10)
+            # plt.ylim([-10, 10])
+            # plt.xlim([10, 16])
+            # set_axes_equal(ax)
+
+            planeParamEst = torch.ones(self.batchNum, 1, 4, device=self.tdevice)
+            for i in range(self.batchNum):
+                # roadPts = roadPts3DCam[i, :, groundTypeMask[viewInd, 0, :, :].byte()][0:3, :]
+                # for j in range(4):
+                #     meanShift = torch.mean(roadPts, dim=1, keepdim=True)
+                #     roadPts_shifted = roadPts - meanShift
+                #     roadPts_shiftedM = torch.matmul(roadPts_shifted, roadPts_shifted.t())
+                #     e, v = torch.eig(roadPts_shiftedM, eigenvectors = True)
+                #     planeParam_shifted = torch.cat([v[:,2], torch.Tensor([0]).cuda()])
+                #     transM = torch.eye(4, device=self.tdevice)
+                #     transM[0:3,3] = -meanShift[:, 0]
+                #     planeParam = planeParam_shifted @ transM
+                #     dist = torch.abs(planeParam_shifted @ torch.cat([roadPts_shifted, torch.ones(1, roadPts_shifted.shape[1], device=self.tdevice)], dim=0))
+                #     sel = dist < 0.7
+                #     roadPts = roadPts[:, sel]
+                roadPts = roadPts3DCam[i, :, groundTypeMask[viewInd, 0, :, :].byte()][0:3, :]
+                for j in range(4):
+                    meanz = torch.mean(roadPts[2,:])
+                    selected = torch.abs(roadPts[2,:] - meanz) < 0.5
+                    roadPts = roadPts[:,selected]
+                planeParam = torch.Tensor([0,0,1,-meanz]).cuda()
+                planeParamEst[i, 0, :] = planeParam
+
+            oldPts = roadPts3DCam[channelInd, :, centery, centerx]
+            depthOld = torch.clamp(realDepth[channelInd, 0, centery, centerx], min = 0.3, max=100)
+            M = torch.matmul(planeParamEst, roadPts3DParam_inv)
+            depthNew = - (M[channelInd, 0, 3] / (M[channelInd, 0, 0] * centerx.float() + M[channelInd, 0, 1] * centery.float() + M[channelInd,0,2]))
+            depthNew = torch.clamp(depthNew, min = 0.3, max= 100)
+            newPts = torch.stack([centerx.float() * depthNew, centery.float() * depthNew, depthNew, torch.ones_like(depthNew)], dim=1).unsqueeze(2)
+            newPts = torch.matmul(roadPts3DParam_inv[channelInd, :, :], newPts)
+            lossGround = torch.mean(torch.clamp(depthNew.detach() - depthOld, min=0))
+
+            # oldPts = roadPts3DCam[channelInd, :, centery, centerx]
+            # newPts = oldPts.clone()
+            # newPts[:,2] = -planeParamEst[channelInd, 0, 3]
+
+            # depthNew = torch.clamp(torch.matmul(roadPts3DParam[channelInd, :, :], newPts.unsqueeze(2))[:,2,0], min = 0, max = 100)
+            # depthOld = torch.clamp(realDepth[channelInd, 0, centery, centerx], max = 100)
+            # diff = torch.abs(depthOld - depthNew)
+            # a = diff.cpu().numpy()
+            # loss = torch.mean(torch.clamp(depthOld - depthNew, min=0))
+
+            oldPts_view = oldPts[channelInd == viewInd, :].cpu().numpy()
+            newPts_view = newPts[channelInd == viewInd, :].cpu().numpy()
+            centerx_view = centerx[channelInd == viewInd].cpu().numpy()
+            centery_view = centery[channelInd == viewInd].cpu().numpy()
             fig = plt.figure()
             ax = Axes3D(fig)
             ax.view_init(elev=6., azim=170)
             ax.dist = 4
-            ax.scatter(veh_coord2[::sampleDense, 0], veh_coord2[::sampleDense, 1], veh_coord2[::sampleDense, 2],
-                       s=0.1, c=colors2[::sampleDense, :])
-            ax.scatter(roadPts3D_view[:, 0, 0], roadPts3D_view[:, 1, 0], roadPts3D_view[:, 2, 0],
-                       s=0.3, c='g')
-            ax.scatter(viewInterpedRoad[:, 0, 0], viewInterpedRoad[:, 1, 0], viewInterpedRoad[:, 2, 0],
-                       s=0.3, c='c')
+            # ax.scatter(veh_coord2[::sampleDense, 0], veh_coord2[::sampleDense, 1], veh_coord2[::sampleDense, 2], s=0.1, c=colors2[::sampleDense, :])
+            ax.scatter(oldPts_view[:, 0], oldPts_view[:, 1], oldPts_view[:, 2], s=0.3, c='r')
+            ax.scatter(newPts_view[:, 0], newPts_view[:, 1], newPts_view[:, 2], s=0.3, c='c')
             ax.set_zlim(-10, 10)
             plt.ylim([-10, 10])
             plt.xlim([10, 16])
@@ -2716,7 +2643,141 @@ class DepthGuessesBySemantics(nn.Module):
 
             plt.figure()
             plt.imshow(semanFig)
-            plt.scatter(view2dX, view2dY, c = 'c', s = 0.2)
+            plt.scatter(centerx_view, centery_view, s=0.3, c='c')
+                # check shift
+                # roadPts_shifted = torch.cat([roadPts_shifted, torch.ones(1, roadPts_shifted.shape[1], device=self.tdevice)], dim=0)
+                # dist1 = torch.mean(torch.abs(planeParam_shifted @ roadPts_shifted))
+                # roadPts = roadPts3DCam[i, :, groundTypeMask[viewInd, 0, :, :].byte()]
+                # dist2 = torch.mean(torch.abs(planeParam @ roadPts))
+                # print(dist1 - dist2)
+
+                # ptsOnPlane = torch.rand([3,1],device=self.tdevice)
+                # ptsOnPlane[2] = -(planeParam[3] + planeParam[0] * ptsOnPlane[0] + planeParam[1] * ptsOnPlane[1]) / planeParam[2]
+                # ptsOnPlane_shift = ptsOnPlane - meanShift
+                # dist = planeParam_shifted[0:3] @ ptsOnPlane_shift + planeParam_shifted[3]
+                # print(dist)
+
+
+                # roadPts = roadPts3DCam[i, :, groundTypeMask[viewInd, 0, :, :].byte()][0:3, :]
+                # planeParam_draw = planeParam.cpu().numpy()
+                # minx = roadPts[0, :].min()
+                # maxx = roadPts[0, :].max() / 10
+                # miny = roadPts[1, :].min()
+                # maxy = roadPts[1, :].max() / 10
+                # ptsOnplaneDraw = torch.Tensor([[minx, miny, 0], [minx, maxy, 0], [maxx, miny, 0], [maxx, maxy, 0]])
+                # ptsOnplaneDraw[:,2] = -(planeParam[3] + planeParam[0] * ptsOnplaneDraw[:,0] + planeParam[1] * ptsOnplaneDraw[:,1]) / planeParam[2]
+                # ptsOnplaneDraw = ptsOnplaneDraw.view(2,2,3)
+                # ptsOnplaneDraw = ptsOnplaneDraw.cpu().numpy()
+                #
+                # roadPts_view = roadPts.permute(1,0).cpu().numpy()
+                # viewDense = 10
+                # fig = plt.figure()
+                # ax = Axes3D(fig)
+                # ax.view_init(elev=6., azim=170)
+                # ax.dist = 4
+                # ax.scatter(roadPts_view[::viewDense, 0], roadPts_view[::viewDense, 1], roadPts_view[::viewDense, 2], s=0.3, c='c')
+                # ax.plot_surface(ptsOnplaneDraw[:,:,0], ptsOnplaneDraw[:,:,1], ptsOnplaneDraw[:,:,2], alpha = 0.3)
+                # ax.set_zlim(-10, 10)
+                # plt.ylim([-10, 10])
+                # plt.xlim([10, 16])
+                # set_axes_equal(ax)
+            # Check
+            # x1 = 220
+            # y1 = 200
+            # a = realDepth[viewInd, 0, :, :].cpu().numpy()
+            # b = realDepth[viewInd, 0, :, :].view(-1).cpu().numpy()
+            # yy, xx = torch.meshgrid([torch.arange(0, self.height), torch.arange(0, self.width)])
+            # testDepth = realDepth[viewInd, 0, :, :]
+            # yy = self.yy.view(self.batchNum, -1)
+            # xx = self.xx.view(self.batchNum, -1)
+            # yy = yy[viewInd,:]
+            # xx = xx[viewInd,:]
+            # testRe = torch.mean(torch.abs(testDepth[yy.contiguous().view(-1).long(), xx.contiguous().view(-1).long()] - testDepth.view(-1)))
+            # c = xx.numpy()
+            # d = yy.numpy()
+
+            # lossDepthRoad = 0
+            # roadBackGroundPts = groundTypeMask[channelInd, 0, sampledy, sampledx]
+            # roadBackSelection = torch.sum(roadBackGroundPts, 1) > 20
+            # roadBackGroundPts = roadBackGroundPts[roadBackSelection, :]
+            # roadX = sampledx[roadBackSelection, :]
+            # roadY = sampledy[roadBackSelection, :]
+            # roadChannle = channelInd[roadBackSelection, :]
+            # roadDepth = realDepth[roadChannle, 0, roadY, roadX]
+            # roadX = roadX.float().cuda()
+            # roadY = roadY.float().cuda()
+            # roadPts3DCam = torch.stack([roadX * roadDepth, roadY * roadDepth, roadDepth, torch.ones_like(roadDepth)], dim=2).view(-1,4,1)
+            # roadPts3DParam = torch.matmul(intrinsic, extrinsic)
+            # roadPts3DParam_inv = torch.inverse(roadPts3DParam)
+            # roadPts3DParam = roadPts3DParam[roadChannle, :, :].view(-1,4,4)
+            # roadPts3DParam_inv = roadPts3DParam_inv[roadChannle, :, :].view(-1,4,4)
+            # roadPts3D = torch.matmul(roadPts3DParam_inv, roadPts3DCam).view(-1, self.smapleDense, 4, 1)
+            # k_ground = (torch.sum(roadPts3D[:,:,2,0] * roadBackGroundPts, dim=1) / torch.sum(roadBackGroundPts, dim=1))
+            # roadPlane = torch.stack([torch.zeros(roadPts3D.shape[0], device=torch.device('cuda')), torch.zeros(roadPts3D.shape[0], device=torch.device('cuda')), torch.ones(roadPts3D.shape[0], device=torch.device('cuda')), -k_ground], dim=1)
+            # roadPlane = roadPlane.unsqueeze(dim=1).repeat(1,self.smapleDense,1,1).view(-1, 1, 4)
+            #
+            #
+            # ptsOnPlane = torch.stack([torch.zeros(roadPlane.shape[0], device=tdevice), torch.zeros(roadPlane.shape[0], device=tdevice), -roadPlane[:, 0, 3], torch.ones(roadPlane.shape[0], device=tdevice)], dim=1).unsqueeze(dim = 2)
+            # roadPts3D_flat = roadPts3D.view(-1, 4, 1)
+            # ptsFromOrgToIntrest = (roadPts3D_flat - ptsOnPlane)[:, 0:3, 0]
+            # dirLength = ptsFromOrgToIntrest[:, 2]
+            # roadPtsProjectedToPlane = ptsFromOrgToIntrest - (dirLength.unsqueeze(1).repeat(1,3) * roadPlane[:,0,0:3])
+            # roadPtsProjectedToPlane = ptsOnPlane[:,0:3,0] + roadPtsProjectedToPlane
+            # roadPtsProjectedToPlane = torch.cat([roadPtsProjectedToPlane, torch.ones([roadPtsProjectedToPlane.shape[0],1], device=tdevice)], dim=1)
+            # roadPtsProjectedToPlane = roadPtsProjectedToPlane.view(-1,4,1)
+            # roadProjectedNew = torch.matmul(roadPts3DParam, roadPtsProjectedToPlane)
+            # roadXNew = roadProjectedNew[:,0,0] / roadProjectedNew[:,2,0]
+            # roadYNew = roadProjectedNew[:, 1, 0] / roadProjectedNew[:, 2,0]
+            # roadDepthNew = roadProjectedNew[:,2,0]
+            #
+            # roadBackGroundPts = roadBackGroundPts.byte()
+            # roadDepthOld = roadDepth[roadBackGroundPts]
+            # roadXOld = roadX[roadBackGroundPts]
+            # roadYOld = roadY[roadBackGroundPts]
+            #
+            # roadBackGroundPts = roadBackGroundPts.view(-1)
+            # roadDepthNew = roadDepthNew[roadBackGroundPts]
+            # roadXNew = roadXNew[roadBackGroundPts]
+            # roadYNew = roadYNew[roadBackGroundPts]
+            # ptsck = roadPtsProjectedToPlane
+            # ptsck = torch.abs(torch.matmul(roadPlane, ptsck))
+            # ptsck = ptsck[:,0,0][roadBackGroundPts]
+            #
+            #
+            # framSelector = ((roadChannle == viewInd).float() * roadBackGroundPts.view(-1, self.smapleDense).float()).byte()
+            # roadPts3D_view = roadPts3D[framSelector, :, :].cpu().numpy()
+            # view2dX = roadX[framSelector].cpu().numpy().astype(np.float)
+            # view2dY = roadY[framSelector].cpu().numpy().astype(np.float)
+            # semanView = semantic[viewInd, :, :].cpu().numpy()
+            # semanFig = visualize_semantic(semanView).resize([dispAct.shape[3], dispAct.shape[2]], resample=Image.NEAREST)
+            #
+            # viewInterpedRoad = roadPtsProjectedToPlane
+            # viewInterpedRoad = viewInterpedRoad[framSelector.view(-1), :, :].cpu().numpy()
+            #
+            #
+            # fig = plt.figure()
+            # ax = Axes3D(fig)
+            # ax.view_init(elev=6., azim=170)
+            # ax.dist = 4
+            # ax.scatter(veh_coord2[::sampleDense, 0], veh_coord2[::sampleDense, 1], veh_coord2[::sampleDense, 2],
+            #            s=0.1, c=colors2[::sampleDense, :])
+            # ax.scatter(roadPts3D_view[:, 0, 0], roadPts3D_view[:, 1, 0], roadPts3D_view[:, 2, 0],
+            #            s=0.3, c='g')
+            # ax.scatter(viewInterpedRoad[:, 0, 0], viewInterpedRoad[:, 1, 0], viewInterpedRoad[:, 2, 0],
+            #            s=0.3, c='c')
+            # ax.set_zlim(-10, 10)
+            # plt.ylim([-10, 10])
+            # plt.xlim([10, 16])
+            # set_axes_equal(ax)
+            #
+            # plt.figure()
+            # plt.imshow(semanFig)
+            # plt.scatter(view2dX, view2dY, c = 'c', s = 0.2)
+
+
+
+
+            # Wall
 
             height = dispAct.shape[2]
             width = dispAct.shape[3]
@@ -2775,7 +2836,7 @@ class DepthGuessesBySemantics(nn.Module):
             ptsSet1 = np.expand_dims(np.stack([centerx[curChannelPosPts], centery[curChannelPosPts]], axis=1), axis=1)
             ptsSet2 = np.expand_dims(np.stack([sampledx_pair[curChannelPosPts], sampledy_pair[curChannelPosPts]], axis=1), axis=1)
             ptsSet = np.concatenate([ptsSet1, ptsSet2], axis=1)
-            ln_coll = LineCollection(ptsSet, colors='r', linewidths=0.1)
+            ln_coll = LineCollection(ptsSet, colors='c', linewidths=0.6)
             ax.add_collection(ln_coll)
             ax.set_title('Line collection with masked arrays')
             plt.show()

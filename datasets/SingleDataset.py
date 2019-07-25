@@ -212,7 +212,7 @@ class SingleDataset(data.Dataset):
             inputs["depth_gt"] = torch.from_numpy(inputs["depth_gt"].astype(np.float32))
 
         if self.load_seman:
-            seman_gt = self.get_seman(folder, do_flip)
+            seman_gt = self.get_seman(folder, do_flip, frame_index)
             if seman_gt is not None:
                 inputs["seman_gt_eval"] = seman_gt
                 seman_gt = np.array(self.seman_resize(Image.fromarray(seman_gt)))
@@ -274,7 +274,7 @@ class SingleDataset(data.Dataset):
     def get_rescaleFac(self, folder):
         raise NotImplementedError
 
-    def get_seman(self, folder, do_flip):
+    def get_seman(self, folder, do_flip, frame_index):
         raise NotImplementedError
 
     def check_seman(self):
