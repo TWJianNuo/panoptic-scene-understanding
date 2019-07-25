@@ -279,7 +279,7 @@ def evaluate(opt):
     viewBorderSimilarity = False
     viewRandomSample = True
     viewSemanReg = False
-    viewDepthGuess = True
+    viewDepthGuess = False
     height = 256
     width = 512
     tensor23dPts = Tensor23dPts()
