@@ -140,8 +140,6 @@ class DenseASPP(nn.Module):
                 # print(newkey)
         self.features[:-2].load_state_dict(renamedDsStateDict)
     def forward(self, _input, computeSemantic = True, computeDepth = False):
-        _input = self.normalizer(_input)
-
         feature = self.features(_input)
 
         aspp3 = self.ASPP_3(feature)
