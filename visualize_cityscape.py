@@ -226,7 +226,7 @@ def evaluate(opt):
         opt.frame_ids.append("s")
     if opt.dataset == 'cityscape':
         dataset = datasets.CITYSCAPERawDataset(opt.data_path, filenames,
-                                           encoder_dict['height'], encoder_dict['width'], opt.frame_ids, 4, is_train=False, tag=opt.dataset, load_meta=True)
+                                           encoder_dict['height'], encoder_dict['width'], opt.frame_ids, 4, is_train=False, tag=opt.dataset, load_meta=True, is_sep_train_seman = True)
     elif opt.dataset == 'kitti':
         dataset = datasets.KITTIRAWDataset(opt.data_path, filenames,
                                            encoder_dict['height'], encoder_dict['width'], opt.frame_ids, 4, is_train=False, tag=opt.dataset)
@@ -346,6 +346,16 @@ def evaluate(opt):
             outputs = dict()
             outputs.update(depth_decoder(features, computeSemantic=True, computeDepth=False))
             outputs.update(depth_decoder(features, computeSemantic=False, computeDepth=True))
+
+            # view the processed semantic seperate training data
+            # for viewInd in range(opt.batch_size):
+            #     label = inputs['semanTrain_label']
+            #     visualize_semantic(label[viewInd, 0, :, :].cpu().numpy()).show()
+            #     fig_rgb = inputs['semanTrain_rgb'][viewInd, :, :, :].permute(1, 2, 0).cpu().numpy()
+            #     fig_rgb = (fig_rgb * 255).astype(np.uint8)
+            #     fig_rgb = pil.fromarray(fig_rgb)
+            #     fig_rgb.show()
+
 
             if isHist:
                 mulDisp = outputs[('mul_disp', 0)]

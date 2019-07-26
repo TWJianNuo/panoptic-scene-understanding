@@ -26,8 +26,8 @@ import matplotlib.pyplot as plt
 class CITYSCAPEDataset(SingleDataset):
     """Superclass for different types of KITTI dataset loaders
     """
-    def __init__(self, data_path, filenames, height, width, frame_idxs, num_scales, tag, is_train=False, img_ext='.png', load_depth = False, load_meta = False):
-        super(CITYSCAPEDataset, self).__init__(data_path, filenames, height, width, frame_idxs, num_scales, tag, is_train, img_ext='.png')
+    def __init__(self, data_path, filenames, height, width, frame_idxs, num_scales, tag, is_train=False, img_ext='.png', load_depth = False, load_meta = False, is_sep_train_seman = False):
+        super(CITYSCAPEDataset, self).__init__(data_path, filenames, height, width, frame_idxs, num_scales, tag, is_train, img_ext='.png', is_sep_train_seman = is_sep_train_seman)
         # self.kitti_K = np.array([[0.58, 0, 0.5, 0],
         #                         [0, 1.92, 0.5, 0],
         #                         [0, 0, 1, 0],
@@ -151,9 +151,9 @@ class CITYSCAPEDataset(SingleDataset):
             seman_label = np.array(color)[:,:,0]
             # ins_label = np.array(self.loader(ins_path))
             # pil.fromarray(((seman_label == 1)*255).astype(np.uint8)).show()
-            return seman_label
+            return seman_label, color
         else:
-            return None
+            return None, None
 
     def check_seman(self):
         return True

@@ -5,7 +5,7 @@ from torch import nn
 from collections import OrderedDict
 from torch.nn import BatchNorm2d as bn
 import os
-
+from torchvision import transforms
 
 class DenseASPP(nn.Module):
     """
@@ -139,8 +139,9 @@ class DenseASPP(nn.Module):
                 renamedDsStateDict[newkey] = dsStateDict[key]
                 # print(newkey)
         self.features[:-2].load_state_dict(renamedDsStateDict)
-
     def forward(self, _input, computeSemantic = True, computeDepth = False):
+        _input = self.normalizer(_input)
+
         feature = self.features(_input)
 
         aspp3 = self.ASPP_3(feature)

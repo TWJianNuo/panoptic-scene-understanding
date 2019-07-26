@@ -213,7 +213,7 @@ class Trainer_ASPP:
 
             train_dataset = initFunc(
                 datapath_set[i], train_filenames, self.opt.height, self.opt.width,
-                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=True, img_ext=img_ext)
+                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=True, img_ext=img_ext, is_sep_train_seman = True)
             train_sample_num[i] = train_dataset.__len__()
             stacked_train_datasets.append(train_dataset)
 

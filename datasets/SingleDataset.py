@@ -47,7 +47,8 @@ class SingleDataset(data.Dataset):
                  num_scales,
                  tag,
                  is_train=False,
-                 img_ext='.png'
+                 img_ext='.png',
+                 is_sep_train_seman = False
                  ):
         super(SingleDataset, self).__init__()
 
@@ -66,6 +67,7 @@ class SingleDataset(data.Dataset):
         self.loader = pil_loader
         self.to_tensor = transforms.ToTensor()
         self.tag = tag
+        self.is_sep_train_seman = is_sep_train_seman
 
         # We need to specify augmentations differently in newer versions of torchvision.
         # We first try the newer tuple version; if this fails we fall back to scalars
@@ -92,7 +94,7 @@ class SingleDataset(data.Dataset):
 
         self.load_depth = self.check_depth()
         self.load_seman = self.check_seman()
-
+        self.normalizer = transforms.Normalize([125.3, 123.0, 113.9], [63.0, 62.1, 66.7], inplace=False)
     def preprocess(self, inputs, color_aug):
         """Resize colour images to the required scales and augment if required
 
@@ -202,23 +204,64 @@ class SingleDataset(data.Dataset):
 
         self.preprocess(inputs, color_aug)
 
-        for i in self.frame_idxs:
-            del inputs[("color", i, -1)]
-            del inputs[("color_aug", i, -1)]
-
         if self.load_depth:
             depth_gt = self.get_depth(folder, frame_index, side, do_flip)
             inputs["depth_gt"] = np.expand_dims(depth_gt, 0)
             inputs["depth_gt"] = torch.from_numpy(inputs["depth_gt"].astype(np.float32))
 
         if self.load_seman:
-            seman_gt = self.get_seman(folder, do_flip, frame_index)
+            seman_gt, _ = self.get_seman(folder, do_flip, frame_index)
             if seman_gt is not None:
                 inputs["seman_gt_eval"] = seman_gt
                 seman_gt = np.array(self.seman_resize(Image.fromarray(seman_gt)))
                 inputs["seman_gt"] = np.expand_dims(seman_gt, 0)
                 inputs["seman_gt"] = torch.from_numpy(inputs["seman_gt"].astype(np.int))
-            # raise NotImplementedError
+
+                if self.is_sep_train_seman:
+                    # Do extra augmentation to make semantic training better
+                    _, semanTrain_label = self.get_seman(folder, False, frame_index)
+                    semanTrain_rgb = self.get_color(folder, frame_index, "l", False)
+
+                    # Data augmentation
+                    # Color jittering
+                    color_aug = transforms.ColorJitter.get_params(self.brightness, self.contrast, self.saturation, self.hue)
+                    semanTrain_rgb = color_aug(semanTrain_rgb)
+
+                    # Random Flip
+                    if random.random() > 0.5:
+                        semanTrain_rgb = semanTrain_rgb.transpose(Image.FLIP_LEFT_RIGHT)
+                        semanTrain_label = semanTrain_label.transpose(Image.FLIP_LEFT_RIGHT)
+
+                    # Random scale
+                    random_scaling = random.random() * 1.5 + 0.5
+                    scaledWidth = np.int(semanTrain_rgb.size[0] * random_scaling)
+                    scaledHeight = np.int(semanTrain_rgb.size[1] * random_scaling)
+                    semanTrain_rgb = semanTrain_rgb.resize([scaledWidth, scaledHeight], resample = Image.BILINEAR)
+                    semanTrain_label = semanTrain_label.resize([scaledWidth, scaledHeight], resample = Image.NEAREST)
+
+                    # Random Crop
+                    cropSize = 512
+                    scaledWidth = semanTrain_rgb.size[0]
+                    scaledHeight = semanTrain_rgb.size[1]
+                    st_width = np.int(np.ceil(random.random() * (scaledWidth - cropSize)))
+                    st_height = np.int(np.ceil(random.random() * (scaledHeight - cropSize)))
+                    # st_width = np.int(np.ceil(1.0 * (scaledWidth - cropSize)))
+                    # st_height = np.int(np.ceil(1.0 * (scaledHeight - cropSize)))
+                    semanTrain_rgb = semanTrain_rgb.crop([st_width, st_height, st_width + cropSize, st_height + cropSize])
+                    semanTrain_label = semanTrain_label.crop([st_width, st_height, st_width + cropSize, st_height + cropSize])
+
+                    # Attention here!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                    ###################### Danger!!!!!!!!!!!!!!!!!!!!!!!!!!######################
+                    semanTrain_rgb = self.to_tensor(semanTrain_rgb)
+                    semanTrain_rgb = self.normalizer(semanTrain_rgb)
+
+                    inputs["semanTrain_rgb"] = semanTrain_rgb
+                    inputs["semanTrain_label"] = torch.from_numpy(np.array(semanTrain_label)[:,:,0].astype(np.int)).unsqueeze(0)
+
+        for i in self.frame_idxs:
+            del inputs[("color", i, -1)]
+            del inputs[("color_aug", i, -1)]
+
         if self.check_cityscape_meta():
             inputs["cts_meta"] = self.get_cityscape_meta(folder)
 

@@ -136,8 +136,8 @@ class KITTIDataset(SingleDataset):
 class KITTIRAWDataset(KITTIDataset):
     """KITTI dataset which loads the original velodyne depth maps for ground truth
     """
-    def __init__(self, data_path, filenames, height, width, frame_idxs, num_scales, tag, is_train=False, img_ext='.png', load_depth = False, load_meta = False):
-        super(KITTIRAWDataset, self).__init__(data_path, filenames, height, width, frame_idxs, num_scales, tag, is_train, img_ext='.png')
+    def __init__(self, data_path, filenames, height, width, frame_idxs, num_scales, tag, is_train=False, img_ext='.png', load_depth = False, load_meta = False, is_sep_train_seman = False):
+        super(KITTIRAWDataset, self).__init__(data_path, filenames, height, width, frame_idxs, num_scales, tag, is_train, img_ext='.png', is_sep_train_seman = is_sep_train_seman)
         self.load_meta = load_meta
         if load_meta:
             self.semanticDataset = '/media/shengjie/other/sceneUnderstanding/monodepth2/kitti_data/kitti_semantics'
@@ -192,11 +192,11 @@ class KITTIRAWDataset(KITTIDataset):
                     trainId = labels[i].trainId
                     trainId_semantics[selector] = trainId
                     # processed_pix = processed_pix + np.sum(selector)
-                return trainId_semantics
+                return trainId_semantics, None
             else:
-                return None
+                return None, None
         else:
-            return None
+            return None, None
 
     def check_seman(self):
         return True

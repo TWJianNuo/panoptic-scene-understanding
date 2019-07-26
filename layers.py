@@ -2017,10 +2017,10 @@ class DepthGuessesBySemantics(nn.Module):
                 planeParam = torch.Tensor([0,0,1,-meanz]).cuda()
                 planeParamEst[i, 0, :] = planeParam
 
-        depthOld = torch.clamp(realDepth[channelInd, 0, centery, centerx], min = 0.3, max=20)
+        depthOld = torch.clamp(realDepth[channelInd, 0, centery, centerx], min = 0.3)
         M = torch.matmul(planeParamEst, roadPts3DParam_inv)
         depthNew = - (M[channelInd, 0, 3] / (M[channelInd, 0, 0] * centerx.float() + M[channelInd, 0, 1] * centery.float() + M[channelInd,0,2]))
-        depthNew = torch.clamp(depthNew, min = 0.3)
+        depthNew = torch.clamp(depthNew, min = 0.3, max=20)
         lossRoad = torch.mean(torch.clamp(depthNew.detach() - depthOld, min=0)) * 1e-3
         if torch.isnan(lossRoad):
             lossRoad = 0
