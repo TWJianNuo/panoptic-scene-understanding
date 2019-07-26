@@ -572,7 +572,8 @@ class SelfOccluMask(nn.Module):
                 output = torch.min(output, dim=1, keepdim=True)[0]
                 output = output[:,:,self.pad-1:-(self.pad-1):,-width:]
                 mask = torch.tanh(-output * self.boostfac)
-                mask = mask.masked_fill(mask < 0.9, 0)
+                mask = mask.masked_fill(mask < 0.8, 0)
+                # mask = mask.masked_fill(mask < 0.9, 0)
                 # mask = mask.masked_fill(mask < 0, 0)
             elif direction == 'r':
                 dispmap_opp = torch.flip(dispmap, dims=[3])
@@ -580,7 +581,8 @@ class SelfOccluMask(nn.Module):
                 output_opp = torch.min(output_opp, dim=1, keepdim=True)[0]
                 output_opp = output_opp[:, :, self.pad - 1:-(self.pad - 1):, -width:]
                 mask = torch.tanh(-output_opp * self.boostfac)
-                mask = mask.masked_fill(mask < 0.9, 0)
+                mask = mask.masked_fill(mask < 0.8, 0)
+                # mask = mask.masked_fill(mask < 0.9, 0)
                 # mask = mask.masked_fill(mask < 0, 0)
                 mask = torch.flip(mask, dims=[3])
             return mask
@@ -597,7 +599,7 @@ class SelfOccluMask(nn.Module):
         # output = output[:,:,pad:-pad, pad:-pad]
         mask = torch.tanh(-output * self.boostfac)
         # mask = torch.clamp(mask, min=0)
-        mask = mask.masked_fill(mask < 0.9, 0)
+        mask = mask.masked_fill(mask < 0.8, 0)
 
         dispmap_opp = torch.flip(dispmap, dims=[3])
         output_opp = self.conv(dispmap_opp)
