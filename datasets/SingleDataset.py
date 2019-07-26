@@ -94,7 +94,7 @@ class SingleDataset(data.Dataset):
 
         self.load_depth = self.check_depth()
         self.load_seman = self.check_seman()
-        self.normalizer = transforms.Normalize([125.3, 123.0, 113.9], [63.0, 62.1, 66.7], inplace=False)
+        self.normalizer = transforms.Normalize([125.3, 123.0, 113.9], [63.0, 62.1, 66.7])
     def preprocess(self, inputs, color_aug):
         """Resize colour images to the required scales and augment if required
 
