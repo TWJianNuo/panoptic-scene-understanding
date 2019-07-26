@@ -29,7 +29,7 @@ class DenseASPP(nn.Module):
         # First convolution
         self.features = nn.Sequential(OrderedDict([
             ('conv0', nn.Conv2d(3, num_init_features, kernel_size=7, stride=2, padding=3, bias=False)),
-            ('norm0', bn(num_init_features, momentum=0.5)),
+            ('norm0', bn(num_init_features)),
             ('relu0', nn.ReLU(inplace=True)),
             ('pool0', nn.MaxPool2d(kernel_size=3, stride=2, padding=1)),
         ]))
@@ -77,7 +77,7 @@ class DenseASPP(nn.Module):
         num_features = num_features // 2
 
         # Final batch norm
-        self.features.add_module('norm5', bn(num_features, momentum=0.5))
+        self.features.add_module('norm5', bn(num_features))
 
         # if not os.path.exists(os.path.join(self.pretrainedModelPath, 'denseASPP161_795.pkl')):
         #     weight = torch.load(os.path.join(self.pretrainedModelPath, "denseASPP161.pkl"), map_location=lambda storage, loc: storage)
@@ -193,11 +193,11 @@ class _DenseAsppBlock(nn.Sequential):
 class _DenseLayer(nn.Sequential):
     def __init__(self, num_input_features, growth_rate, bn_size, drop_rate, dilation_rate=1):
         super(_DenseLayer, self).__init__()
-        self.add_module('norm1', bn(num_input_features, momentum=0.5)),
+        self.add_module('norm1', bn(num_input_features)),
         self.add_module('relu1', nn.ReLU(inplace=True)),
         self.add_module('conv1', nn.Conv2d(num_input_features, bn_size *
                         growth_rate, kernel_size=1, stride=1, bias=False)),
-        self.add_module('norm2', bn(bn_size * growth_rate, momentum=0.5)),
+        self.add_module('norm2', bn(bn_size * growth_rate)),
         self.add_module('relu2', nn.ReLU(inplace=True)),
         self.add_module('conv2', nn.Conv2d(bn_size * growth_rate, growth_rate,
                         kernel_size=3, stride=1, dilation=dilation_rate, padding=dilation_rate, bias=False)),
@@ -222,7 +222,7 @@ class _DenseBlock(nn.Sequential):
 class _Transition(nn.Sequential):
     def __init__(self, num_input_features, num_output_features, stride=2):
         super(_Transition, self).__init__()
-        self.add_module('norm', bn(num_input_features, momentum=0.5))
+        self.add_module('norm', bn(num_input_features))
         self.add_module('relu', nn.ReLU(inplace=True))
         self.add_module('conv', nn.Conv2d(num_input_features, num_output_features, kernel_size=1, stride=1, bias=False))
         if stride == 2:

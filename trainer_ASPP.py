@@ -391,7 +391,7 @@ class Trainer_ASPP:
     def val(self):
         """Validate the model on a single minibatch
         """
-        self.set_eval()
+        # self.set_eval()
         try:
             inputs = self.val_iter.next()
         except StopIteration:
