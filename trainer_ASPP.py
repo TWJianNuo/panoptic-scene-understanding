@@ -219,7 +219,7 @@ class Trainer_ASPP:
 
             val_dataset = initFunc(
                 datapath_set[i], val_filenames, self.opt.height, self.opt.width,
-                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=False, img_ext=img_ext)
+                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=False, img_ext=img_ext, is_sep_train_seman = True)
             val_sample_num[i] = val_dataset.__len__()
             stacked_val_datasets.append(val_dataset)
 
@@ -237,6 +237,7 @@ class Trainer_ASPP:
             joint_dataset_val, self.opt.batch_size, shuffle=False, sampler=valSample,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
         self.val_iter = iter(self.val_loader)
+        self.train_iter = iter(self.train_loader)
 
         num_train_samples = self.joint_dataset_train.__len__()
         self.train_num = self.joint_dataset_train.__len__()
@@ -254,6 +255,7 @@ class Trainer_ASPP:
         """
         for m in self.models.values():
             m.eval()
+            # m.train()
 
     def train(self):
         """Run the entire training pipeline
@@ -316,7 +318,7 @@ class Trainer_ASPP:
                     self.compute_depth_losses(inputs, outputs, losses)
 
                 self.log("train", inputs, outputs, losses, writeImage=False)
-                if self.step % 1 == 0:
+                if self.step % 10 == 0:
                     self.val()
 
             # timeCount = np.array((self.timeSpan_decoder, self.timeSpan_mergeLayer, self.timeSpan_predict, self.timeSpan_loss))
@@ -350,37 +352,29 @@ class Trainer_ASPP:
             outputs.update(self.models["depth"](inputs["color_aug", 0, 0], computeSemantic = True, computeDepth = False))
         if not self.opt.banDepth:
             outputs.update(self.models["depth"](inputs["color_aug", 0, 0], computeSemantic = False, computeDepth = True))
-        # end_decoder.record()
-        # torch.cuda.synchronize()
-        # self.timeSpan_decoder = self.timeSpan_decoder + start_decoder.elapsed_time(end_decoder)
 
-        # start_merge = torch.cuda.Event(enable_timing=True)
-        # end_merge = torch.cuda.Event(enable_timing=True)
-        # start_merge.record()
+
         self.merge_multDisp(inputs, outputs)
-        # end_merge.record()
-        # torch.cuda.synchronize()
-        # self.timeSpan_mergeLayer = self.timeSpan_mergeLayer + start_merge.elapsed_time(end_merge)
-
-        # start_predict = torch.cuda.Event(enable_timing=True)
-        # end_predict = torch.cuda.Event(enable_timing=True)
-        # start_predict.record()
         if not self.opt.banDepth:
             self.generate_images_pred(inputs, outputs)
-        # end_predict.record()
-        # torch.cuda.synchronize()
-        # self.timeSpan_predict = self.timeSpan_predict + start_predict.elapsed_time(end_predict)
-
-        # start_loss = torch.cuda.Event(enable_timing=True)
-        # end_loss = torch.cuda.Event(enable_timing=True)
-        # start_loss.record()
         losses = self.compute_losses(inputs, outputs)
-        # end_loss.record()
-        # torch.cuda.synchronize()
-        # self.timeSpan_loss = self.timeSpan_loss + start_loss.elapsed_time(end_loss)
-        # losses['loss'].backward()
-        # grad_sample =self.models['depth'].decoder[0].conv_pos.conv.weight.grad
-        # print(torch.sum(torch.abs(grad_sample)))
+
+        #-1.8883
+        # check
+        # inputs = self.val_iter.next()
+        # for key, ipt in inputs.items():
+        #     if not(key == 'height' or key == 'width' or key == 'tag'):
+        #         inputs[key] = ipt.to(self.device)
+        # outputs = dict()
+        # if not self.opt.banSemantic:
+        #     outputs.update(self.models["depth"](inputs["color_aug", 0, 0], computeSemantic = True, computeDepth = False))
+        # gt = inputs['seman_gt_eval'].cpu().numpy().astype(np.uint8)
+        # pred = self.sfx(outputs[('seman', 0)]).detach()
+        # pred = torch.argmax(pred, dim=1).type(torch.float).unsqueeze(1)
+        # pred = F.interpolate(pred, [gt.shape[1], gt.shape[2]], mode='nearest')
+        # pred = pred.squeeze(1).cpu().numpy().astype(np.uint8)
+        # visualize_semantic(gt[0, :, :]).show()
+        # visualize_semantic(pred[0, :, :]).show()
         return outputs, losses
     def is_regress_dispLoss(self, inputs, outputs):
         # if there are stereo images, we compute depth

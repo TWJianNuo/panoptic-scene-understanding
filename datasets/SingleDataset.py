@@ -240,15 +240,16 @@ class SingleDataset(data.Dataset):
                     semanTrain_label = semanTrain_label.resize([scaledWidth, scaledHeight], resample = Image.NEAREST)
 
                     # Random Crop
-                    cropSize = 512
+                    cropSizew = 512
+                    cropSizeh = 256
                     scaledWidth = semanTrain_rgb.size[0]
                     scaledHeight = semanTrain_rgb.size[1]
-                    st_width = np.int(np.ceil(random.random() * (scaledWidth - cropSize)))
-                    st_height = np.int(np.ceil(random.random() * (scaledHeight - cropSize)))
+                    st_width = np.int(np.ceil(random.random() * (scaledWidth - cropSizew)))
+                    st_height = np.int(np.ceil(random.random() * (scaledHeight - cropSizeh)))
                     # st_width = np.int(np.ceil(1.0 * (scaledWidth - cropSize)))
                     # st_height = np.int(np.ceil(1.0 * (scaledHeight - cropSize)))
-                    semanTrain_rgb = semanTrain_rgb.crop([st_width, st_height, st_width + cropSize, st_height + cropSize])
-                    semanTrain_label = semanTrain_label.crop([st_width, st_height, st_width + cropSize, st_height + cropSize])
+                    semanTrain_rgb = semanTrain_rgb.crop([st_width, st_height, st_width + cropSizew, st_height + cropSizeh])
+                    semanTrain_label = semanTrain_label.crop([st_width, st_height, st_width + cropSizew, st_height + cropSizeh])
 
                     # Attention here!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                     ###################### Danger!!!!!!!!!!!!!!!!!!!!!!!!!!######################

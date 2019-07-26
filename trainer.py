@@ -317,7 +317,7 @@ class Trainer:
                     self.compute_depth_losses(inputs, outputs, losses)
 
                 self.log("train", inputs, outputs, losses, writeImage=False)
-                if self.step % 1 == 0:
+                if self.step % 10 == 0:
                     self.val()
 
             # timeCount = np.array((self.timeSpan_decoder, self.timeSpan_mergeLayer, self.timeSpan_predict, self.timeSpan_loss))
