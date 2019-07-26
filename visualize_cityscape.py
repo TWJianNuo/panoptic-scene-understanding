@@ -226,7 +226,7 @@ def evaluate(opt):
         opt.frame_ids.append("s")
     if opt.dataset == 'cityscape':
         dataset = datasets.CITYSCAPERawDataset(opt.data_path, filenames,
-                                           encoder_dict['height'], encoder_dict['width'], opt.frame_ids, 4, is_train=False, tag=opt.dataset, load_meta=True, is_sep_train_seman = True)
+                                           encoder_dict['height'], encoder_dict['width'], opt.frame_ids, 4, is_train=False, tag=opt.dataset, load_meta=True, is_sep_train_seman = False)
     elif opt.dataset == 'kitti':
         dataset = datasets.KITTIRAWDataset(opt.data_path, filenames,
                                            encoder_dict['height'], encoder_dict['width'], opt.frame_ids, 4, is_train=False, tag=opt.dataset)

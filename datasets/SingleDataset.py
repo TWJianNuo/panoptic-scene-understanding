@@ -255,8 +255,10 @@ class SingleDataset(data.Dataset):
                     semanTrain_rgb = self.to_tensor(semanTrain_rgb)
                     semanTrain_rgb = self.normalizer(semanTrain_rgb)
 
-                    inputs["semanTrain_rgb"] = semanTrain_rgb
-                    inputs["semanTrain_label"] = torch.from_numpy(np.array(semanTrain_label)[:,:,0].astype(np.int)).unsqueeze(0)
+                    # inputs["semanTrain_rgb"] = semanTrain_rgb
+                    # inputs["semanTrain_label"] = torch.from_numpy(np.array(semanTrain_label)[:,:,0].astype(np.int)).unsqueeze(0)
+                    inputs["color_aug", 0, 0] = semanTrain_rgb
+                    inputs["seman_gt"] = torch.from_numpy(np.array(semanTrain_label)[:,:,0].astype(np.int)).unsqueeze(0)
 
         for i in self.frame_idxs:
             del inputs[("color", i, -1)]

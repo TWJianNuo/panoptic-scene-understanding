@@ -306,8 +306,8 @@ class Merge_MultDisp(nn.Module):
         # self.weights_time = 0
 
     def forward(self, inputs, outputs, eval = False):
-        height = inputs[('color', 0, 0)].shape[2]
-        width = inputs[('color', 0, 0)].shape[3]
+        height = inputs[('color_aug', 0, 0)].shape[2]
+        width = inputs[('color_aug', 0, 0)].shape[3]
         outputFormat = [self.batchSize, self.semanType + 1, height, width]
 
         if ('seman', 0) in outputs:
