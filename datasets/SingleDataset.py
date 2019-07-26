@@ -259,7 +259,7 @@ class SingleDataset(data.Dataset):
                     # inputs["semanTrain_label"] = torch.from_numpy(np.array(semanTrain_label)[:,:,0].astype(np.int)).unsqueeze(0)
                     inputs["color_aug", 0, 0] = semanTrain_rgb
                     inputs["seman_gt"] = torch.from_numpy(np.array(semanTrain_label)[:,:,0].astype(np.int)).unsqueeze(0)
-
+                    inputs['seman_gt_eval'] = inputs["seman_gt"].clone().squeeze(0)
         for i in self.frame_idxs:
             del inputs[("color", i, -1)]
             del inputs[("color_aug", i, -1)]
