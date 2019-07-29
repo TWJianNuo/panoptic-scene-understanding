@@ -95,6 +95,17 @@ class MonodepthOptions:
                                  help="whether to use different training image for semantic segmentation and deoth",
                                  action="store_true"
                                  )
+        self.parser.add_argument("--load_meta",
+                                 help="load meta data",
+                                 action="store_true"
+                                 )
+        self.parser.add_argument("--val_frequency",
+                                 type=int,
+                                 default=10,
+                                 help="set evaluation frequency"
+                                 )
+
+
 
 
         # OPTIMIZATION options

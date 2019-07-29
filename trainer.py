@@ -214,13 +214,13 @@ class Trainer:
 
             train_dataset = initFunc(
                 datapath_set[i], train_filenames, self.opt.height, self.opt.width,
-                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=True, img_ext=img_ext, load_meta=False)
+                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=True, img_ext=img_ext, load_meta=self.opt.load_meta)
             train_sample_num[i] = train_dataset.__len__()
             stacked_train_datasets.append(train_dataset)
 
             val_dataset = initFunc(
                 datapath_set[i], val_filenames, self.opt.height, self.opt.width,
-                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=False, img_ext=img_ext)
+                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=False, img_ext=img_ext, load_meta=self.opt.load_meta)
             val_sample_num[i] = val_dataset.__len__()
             stacked_val_datasets.append(val_dataset)
 
@@ -317,7 +317,7 @@ class Trainer:
                     self.compute_depth_losses(inputs, outputs, losses)
 
                 self.log("train", inputs, outputs, losses, writeImage=False)
-                if self.step % 10 == 0:
+                if self.step % self.opt.val_frequency == 0:
                     self.val()
 
             # timeCount = np.array((self.timeSpan_decoder, self.timeSpan_mergeLayer, self.timeSpan_predict, self.timeSpan_loss))
@@ -914,21 +914,25 @@ class Trainer:
                 writer.add_scalar("{}".format(l), v, self.step)
 
         if writeImage:
+            viewInd = 1
             cm = plt.get_cmap('magma')
-            dispimg = outputs[("disp", 0)][0,0,:,:].cpu().numpy()
-            dispimg = dispimg / 0.1
+            dispimg = outputs[("disp", 0)][viewInd,0,:,:].cpu().numpy()
+            dispimg = dispimg / 0.07
             viewmask = (cm(dispimg) * 255).astype(np.uint8)
             # pil.fromarray(viewmask).save("/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/trianReCompare/" + str(self.step) + ".png")
 
-            slice = inputs['seman_gt'][0, 0, :, :].cpu().numpy()
+            slice = inputs['seman_gt'][viewInd, 0, :, :].cpu().numpy()
             seman = visualize_semantic(slice)
             overlay = (np.array(viewmask[:,:,0:3]) * 0.7 + 0.3 * np.array(seman)).astype(np.uint8)
-
-            dispSuppressed = (outputs[("disp", 0)] * (1 - outputs['ssimMask']))[0,0,:,:].cpu().numpy()
-            dispSuppressed = dispSuppressed / 0.1
-            viewSupmask = (cm(dispSuppressed) * 255).astype(np.uint8)
-            supoverlay = (np.array(viewSupmask[:, :, 0:3]) * 0.7 + 0.3 * np.array(seman)).astype(np.uint8)
-            overlay = np.concatenate([overlay, viewmask[:, :, 0:3], viewSupmask[:, :, 0:3], supoverlay[:,:,0:3]], axis=0)
+            if self.opt.selfocclu:
+                dispSuppressed = (outputs[("disp", 0)] * (1 - outputs['ssimMask']))[viewInd,0,:,:].cpu().numpy()
+                dispSuppressed = dispSuppressed / 0.1
+                viewSupmask = (cm(dispSuppressed) * 255).astype(np.uint8)
+                supoverlay = (np.array(viewSupmask[:, :, 0:3]) * 0.7 + 0.3 * np.array(seman)).astype(np.uint8)
+                overlay = np.concatenate([overlay, viewmask[:, :, 0:3], viewSupmask[:, :, 0:3], supoverlay[:,:,0:3]], axis=0)
+            else:
+                overlay = np.concatenate([overlay, viewmask[:, :, 0:3]],
+                                         axis=0)
 
             pil.fromarray(overlay).save("/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/trianReCompare/" + str(self.step) + ".png")
             # for j in range(min(4, self.opt.batch_size)):

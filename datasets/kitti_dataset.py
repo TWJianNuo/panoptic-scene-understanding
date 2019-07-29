@@ -184,6 +184,8 @@ class KITTIRAWDataset(KITTIDataset):
                     break
             if isFind:
                 semantics = self.loader(os.path.join(semanFolder, str(foundId).zfill(6) + '_10.png')).resize([self.full_res_shape[0], self.full_res_shape[1]], resample=pil.NEAREST)
+                if do_flip:
+                    semantics = semantics.transpose(pil.FLIP_LEFT_RIGHT)
                 semantics = np.array(semantics)[:, :, 0]
                 trainId_semantics = np.zeros_like(semantics)
                 # processed_pix = 0

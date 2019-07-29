@@ -402,7 +402,7 @@ def evaluate(opt):
     viewRandomSample = False
     viewSemanReg = False
     viewErr = True
-    isComputeErrBorder = True
+    isComputeErrBorder = False
     height = 288
     width = 960
     tensor23dPts = Tensor23dPts(height=height, width=width)
