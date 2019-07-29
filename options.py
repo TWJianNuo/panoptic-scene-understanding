@@ -85,6 +85,28 @@ class MonodepthOptions:
                                  help="frames to load",
                                  choices=[0,1,2,3],
                                  default=[3])
+        self.parser.add_argument("--backBone",
+                                 nargs="+",
+                                 type=str,
+                                 help="backbone used",
+                                 choices=["unet", "ASPP"],
+                                 default=["unet"])
+        self.parser.add_argument("--is_sep_train_seman",
+                                 help="whether to use different training image for semantic segmentation and deoth",
+                                 action="store_true"
+                                 )
+        self.parser.add_argument("--load_meta",
+                                 help="load meta data",
+                                 action="store_true"
+                                 )
+        self.parser.add_argument("--val_frequency",
+                                 type=int,
+                                 default=10,
+                                 help="set evaluation frequency"
+                                 )
+
+
+
 
         # OPTIMIZATION options
         self.parser.add_argument("--batch_size",
@@ -187,6 +209,20 @@ class MonodepthOptions:
                                  type=float,
                                  help="if set, apply border similarity loss",
                                  default=1.0)
+        self.parser.add_argument("--borderSemanReg",
+                                 help="if set, experiment on toy problem",
+                                 action="store_true")
+        self.parser.add_argument("--borderSemanRegScale_Wall",
+                                 type=float,
+                                 help="change regularization term scale",
+                                 default=4.0)
+        self.parser.add_argument("--borderSemanRegScale_Road",
+                                 type=float,
+                                 help="change regularization term scale",
+                                 default=1.0)
+
+
+
         # SYSTEM options
         self.parser.add_argument("--no_cuda",
                                  help="if set disables CUDA",

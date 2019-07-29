@@ -14,7 +14,8 @@ import PIL.Image as pil
 from kitti_utils import generate_depth_map
 from .SingleDataset import SingleDataset
 from kitti_utils import read_calib_file, load_velodyne_points
-
+from cityscapesscripts.helpers.labels import labels
+from torchvision import transforms
 
 class KITTIDataset(SingleDataset):
     """Superclass for different types of KITTI dataset loaders
@@ -63,12 +64,6 @@ class KITTIDataset(SingleDataset):
         rescale_fac = 1
         return rescale_fac
 
-    def get_seman(self, folder, do_flip):
-        raise ValueError
-
-    def check_seman(self):
-        return False
-
     def check_cityscape_meta(self):
         return False
 
@@ -88,10 +83,18 @@ class KITTIDataset(SingleDataset):
         # get image shape
         im_shape = cam2cam["S_rect_02"][::-1].astype(np.int32)
 
+        sfx = self.height / im_shape[0]
+        sfy = self.width / im_shape[1]
+        scaleM = np.eye(4)
+        scaleM[0,0] = sfx
+        scaleM[1,1] = sfy
         # compute projection matrix velodyne->image plane
         R_cam2rect = np.eye(4)
         R_cam2rect[:3, :3] = cam2cam['R_rect_00'].reshape(3, 3)
-        P_rect = cam2cam['P_rect_0' + str(2)].reshape(3, 4)
+        P_rect = np.eye(4)
+        P_rect[0:3,:] = cam2cam['P_rect_0' + str(2)].reshape(3, 4)
+        P_rect = scaleM @ P_rect
+        P_rect = P_rect[0:3, :]
         P_velo2im = np.dot(np.dot(P_rect, R_cam2rect), velo2cam)
 
         camK = np.eye(4)
@@ -133,8 +136,16 @@ class KITTIDataset(SingleDataset):
 class KITTIRAWDataset(KITTIDataset):
     """KITTI dataset which loads the original velodyne depth maps for ground truth
     """
-    def __init__(self, *args, **kwargs):
-        super(KITTIRAWDataset, self).__init__(*args, **kwargs)
+    def __init__(self, data_path, filenames, height, width, frame_idxs, num_scales, tag, is_train=False, img_ext='.png', load_depth = False, load_meta = False, is_sep_train_seman = False):
+        super(KITTIRAWDataset, self).__init__(data_path, filenames, height, width, frame_idxs, num_scales, tag, is_train, img_ext='.png', is_sep_train_seman = is_sep_train_seman)
+        self.load_meta = load_meta
+        if load_meta:
+            self.semanticDataset = '/media/shengjie/other/sceneUnderstanding/monodepth2/kitti_data/kitti_semantics'
+            with open('/media/shengjie/other/sceneUnderstanding/monodepth2/splits/train_mapping.txt') as f:
+                self.mapping = f.readlines()
+            self.mapping = [x.strip() for x in self.mapping]
+            self.seman_resize = transforms.Resize((self.height, self.width),
+                                                  interpolation=pil.NEAREST)
 
     def get_image_path(self, folder, frame_index, side):
         f_str = "{:010d}{}".format(frame_index, self.img_ext)
@@ -159,6 +170,38 @@ class KITTIRAWDataset(KITTIDataset):
 
         return depth_gt
 
+    def get_seman(self, folder, do_flip, frame_index):
+        semanFolder = '/media/shengjie/other/sceneUnderstanding/monodepth2/kitti_data/kitti_semantics/training/semantic'
+        if self.load_meta:
+            mappedLkKey = folder.split('/')
+            mappedLkKey = mappedLkKey[0] + ' ' + mappedLkKey[1] + ' ' + str(frame_index).zfill(10)
+            isFind = False
+            foundId = -1
+            for idx, chars in enumerate(self.mapping):
+                if chars == mappedLkKey:
+                    isFind = True
+                    foundId = idx
+                    break
+            if isFind:
+                semantics = self.loader(os.path.join(semanFolder, str(foundId).zfill(6) + '_10.png')).resize([self.full_res_shape[0], self.full_res_shape[1]], resample=pil.NEAREST)
+                if do_flip:
+                    semantics = semantics.transpose(pil.FLIP_LEFT_RIGHT)
+                semantics = np.array(semantics)[:, :, 0]
+                trainId_semantics = np.zeros_like(semantics)
+                # processed_pix = 0
+                for i in np.unique(semantics):
+                    selector = semantics == i
+                    trainId = labels[i].trainId
+                    trainId_semantics[selector] = trainId
+                    # processed_pix = processed_pix + np.sum(selector)
+                return trainId_semantics, None
+            else:
+                return None, None
+        else:
+            return None, None
+
+    def check_seman(self):
+        return True
 
 class KITTIOdomDataset(KITTIDataset):
     """KITTI dataset for odometry training and testing

@@ -1,10 +1,11 @@
 import torch
 import torch.nn.functional as F
-
+import torchvision
 from torch import nn
 from collections import OrderedDict
 from torch.nn import BatchNorm2d as bn
-
+import os
+from torchvision import transforms
 
 class DenseASPP(nn.Module):
     """
@@ -24,7 +25,7 @@ class DenseASPP(nn.Module):
         d_feature1 = model_cfg['d_feature1']
 
         feature_size = int(output_stride / 8)
-
+        self.pretrainedModelPath = "ASPP_pretrainedModel"
         # First convolution
         self.features = nn.Sequential(OrderedDict([
             ('conv0', nn.Conv2d(3, num_init_features, kernel_size=7, stride=2, padding=3, bias=False)),
@@ -77,6 +78,25 @@ class DenseASPP(nn.Module):
 
         # Final batch norm
         self.features.add_module('norm5', bn(num_features))
+
+        # if not os.path.exists(os.path.join(self.pretrainedModelPath, 'denseASPP161_795.pkl')):
+        #     weight = torch.load(os.path.join(self.pretrainedModelPath, "denseASPP161.pkl"), map_location=lambda storage, loc: storage)
+        #     renamed_weight = OrderedDict()
+        #     for key in weight:
+        #         if 'norm.' in key and 'transition' not in key:
+        #             newkey = key.replace('norm.', "norm_")
+        #         elif 'conv.' in key and 'transition' not in key:
+        #             newkey = key.replace('conv.', "conv_")
+        #         elif 'relu.' in key and 'transition' not in key:
+        #             newkey = key.replace('relu.', "relu_")
+        #         else:
+        #             newkey = key
+        #         if 'features' in newkey:
+        #             renamed_weight[newkey[16:]] = weight[key]
+        #     self.features.load_state_dict(renamed_weight)
+        # else:
+        #     raise FileExistsError("Weights not found")
+
         if feature_size > 1:
             self.features.add_module('upsample', nn.Upsample(scale_factor=2, mode='bilinear'))
 
@@ -110,7 +130,23 @@ class DenseASPP(nn.Module):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
-    def forward(self, _input):
+        # load
+        densenet121 = torchvision.models.densenet121(pretrained=True)
+        dsStateDict = densenet121.state_dict()
+        renamedDsStateDict = OrderedDict()
+        for key in dsStateDict:
+            if 'denseblock' in key or 'transition' in key or 'conv0' in key or 'norm0' in key:
+                newkey = key[9:]
+                renamedDsStateDict[newkey] = dsStateDict[key]
+                # print(newkey)
+        self.features[:-2].load_state_dict(renamedDsStateDict)
+
+        self.ms = (torch.Tensor([125.3, 123.0, 113.9]) / 255).view(1,3,1,1).cuda()
+        # self.meanChange = self.meanChange.view(3,1,1).repeat(1,semanTrain_rgb.shape[1], semanTrain_rgb.shape[2])
+        self.vs = (torch.Tensor([63.0, 62.1, 66.7]) / 255).view(1,3,1,1).cuda()
+        # varChange = varChange.view(3,1,1).repeat(1,semanTrain_rgb.shape[1], semanTrain_rgb.shape[2])
+    def forward(self, _input, computeSemantic = True, computeDepth = False):
+        _input = (_input - self.ms.expand_as(_input)) / self.vs.expand_as(_input)
         feature = self.features(_input)
 
         aspp3 = self.ASPP_3(feature)
@@ -129,8 +165,9 @@ class DenseASPP(nn.Module):
         feature = torch.cat((aspp24, feature), dim=1)
 
         cls = self.classification(feature)
-
-        return cls
+        output = dict()
+        output[('seman', 0)] = cls
+        return output
 
 
 class _DenseAsppBlock(nn.Sequential):
@@ -141,12 +178,12 @@ class _DenseAsppBlock(nn.Sequential):
         if bn_start:
             self.add_module('norm_1', bn(input_num, momentum=0.0003)),
 
-        self.add_module('relu_1', nn.ReLU(inplace=True)),
-        self.add_module('conv_1', nn.Conv2d(in_channels=input_num, out_channels=num1, kernel_size=1)),
+        self.add_module('relu1', nn.ReLU(inplace=True)),
+        self.add_module('conv1', nn.Conv2d(in_channels=input_num, out_channels=num1, kernel_size=1)),
 
-        self.add_module('norm_2', bn(num1, momentum=0.0003)),
-        self.add_module('relu_2', nn.ReLU(inplace=True)),
-        self.add_module('conv_2', nn.Conv2d(in_channels=num1, out_channels=num2, kernel_size=3,
+        self.add_module('norm2', bn(num1, momentum=0.0003)),
+        self.add_module('relu2', nn.ReLU(inplace=True)),
+        self.add_module('conv2', nn.Conv2d(in_channels=num1, out_channels=num2, kernel_size=3,
                                             dilation=dilation_rate, padding=dilation_rate)),
 
         self.drop_rate = drop_out
@@ -163,13 +200,13 @@ class _DenseAsppBlock(nn.Sequential):
 class _DenseLayer(nn.Sequential):
     def __init__(self, num_input_features, growth_rate, bn_size, drop_rate, dilation_rate=1):
         super(_DenseLayer, self).__init__()
-        self.add_module('norm_1', bn(num_input_features)),
-        self.add_module('relu_1', nn.ReLU(inplace=True)),
-        self.add_module('conv_1', nn.Conv2d(num_input_features, bn_size *
+        self.add_module('norm1', bn(num_input_features)),
+        self.add_module('relu1', nn.ReLU(inplace=True)),
+        self.add_module('conv1', nn.Conv2d(num_input_features, bn_size *
                         growth_rate, kernel_size=1, stride=1, bias=False)),
-        self.add_module('norm_2', bn(bn_size * growth_rate)),
-        self.add_module('relu_2', nn.ReLU(inplace=True)),
-        self.add_module('conv_2', nn.Conv2d(bn_size * growth_rate, growth_rate,
+        self.add_module('norm2', bn(bn_size * growth_rate)),
+        self.add_module('relu2', nn.ReLU(inplace=True)),
+        self.add_module('conv2', nn.Conv2d(bn_size * growth_rate, growth_rate,
                         kernel_size=3, stride=1, dilation=dilation_rate, padding=dilation_rate, bias=False)),
         self.drop_rate = drop_rate
 

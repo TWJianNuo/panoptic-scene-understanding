@@ -226,7 +226,7 @@ def evaluate(opt):
         opt.frame_ids.append("s")
     if opt.dataset == 'cityscape':
         dataset = datasets.CITYSCAPERawDataset(opt.data_path, filenames,
-                                           encoder_dict['height'], encoder_dict['width'], opt.frame_ids, 4, is_train=False, tag=opt.dataset, load_meta=True)
+                                           encoder_dict['height'], encoder_dict['width'], opt.frame_ids, 4, is_train=False, tag=opt.dataset, load_meta=True, is_sep_train_seman = False)
     elif opt.dataset == 'kitti':
         dataset = datasets.KITTIRAWDataset(opt.data_path, filenames,
                                            encoder_dict['height'], encoder_dict['width'], opt.frame_ids, 4, is_train=False, tag=opt.dataset)
@@ -250,8 +250,16 @@ def evaluate(opt):
     depth_decoder.cuda()
     depth_decoder.eval()
 
-
-
+    # x = torch.ones(2, 2, requires_grad=True)
+    # print(x)
+    # y = x + 2 + x
+    # y = y.detach()
+    # print(y)
+    # z = y * y * 3
+    # out = z.mean()
+    # print(z, out)
+    # out.backward()
+    # print(x.grad)
 
     ##--------------------Visualization parameter here----------------------------##
     sfx = torch.nn.Softmax(dim=1)
@@ -271,6 +279,7 @@ def evaluate(opt):
     viewBorderSimilarity = False
     viewRandomSample = True
     viewSemanReg = False
+    viewDepthGuess = True
     height = 256
     width = 512
     tensor23dPts = Tensor23dPts()
@@ -318,7 +327,9 @@ def evaluate(opt):
         rdSampleSeman = RandomSampleBorderSemanPts()
         rdSampleSeman.cuda()
 
-
+    if viewDepthGuess:
+        depthGuess = DepthGuessesBySemantics(batchNum=opt.batch_size, width=width, height=height)
+        depthGuess.cuda()
     # if viewBorderSimilarity:
     #     borderSim = BorderSimilarity()
     #     borderSim.cuda()
@@ -335,6 +346,16 @@ def evaluate(opt):
             outputs = dict()
             outputs.update(depth_decoder(features, computeSemantic=True, computeDepth=False))
             outputs.update(depth_decoder(features, computeSemantic=False, computeDepth=True))
+
+            # view the processed semantic seperate training data
+            # for viewInd in range(opt.batch_size):
+            #     label = inputs['semanTrain_label']
+            #     visualize_semantic(label[viewInd, 0, :, :].cpu().numpy()).show()
+            #     fig_rgb = inputs['semanTrain_rgb'][viewInd, :, :, :].permute(1, 2, 0).cpu().numpy()
+            #     fig_rgb = (fig_rgb * 255).astype(np.uint8)
+            #     fig_rgb = pil.fromarray(fig_rgb)
+            #     fig_rgb.show()
+
 
             if isHist:
                 mulDisp = outputs[('mul_disp', 0)]
@@ -398,6 +419,38 @@ def evaluate(opt):
                     forePredictCombined = np.concatenate([viewForePred, viewForeGt], axis=0)
                     # pil.fromarray(forePredictCombined).show()
                     pil.fromarray(forePredictCombined).save(os.path.join(dirpath, str(idx) + '_fg.png'))
+
+                if viewDepthGuess:
+                    wallType = [2, 3, 4] # Building, wall, fence
+                    roadType = [0, 1, 9] # road, sidewalk, terrain
+                    foregroundType = [5, 6, 7, 11, 12, 13, 14, 15, 16, 17, 18]  # pole, traffic light, traffic sign, person, rider, car, truck, bus, train, motorcycle, bicycle
+
+                    wallTypeMask = torch.ones(dispMap.shape).cuda().byte()
+                    roadTypeMask = torch.ones(dispMap.shape).cuda().byte()
+                    foreGroundMask = torch.ones(dispMap.shape).cuda().byte()
+
+                    with torch.no_grad():
+                        for m in wallType:
+                            wallTypeMask = wallTypeMask * (inputs['seman_gt'] != m)
+                        wallTypeMask = (1 - wallTypeMask).float()
+
+                        for m in roadType:
+                            roadTypeMask = roadTypeMask * (inputs['seman_gt'] != m)
+                        roadTypeMask = (1 - roadTypeMask).float()
+
+                        for m in foregroundType:
+                            foreGroundMask = foreGroundMask * (inputs['seman_gt'] != m)
+                        foreGroundMask = (1 - foreGroundMask).float()
+                    originalSieze = [2048, 1024]
+                    # currentSize = np.array([dispMap.shape[3], dispMap.shape[2]])
+                    # scaleFac = np.eye(4)
+                    # scaleFac[0,0] = currentSize[0] / originalSieze[0]
+                    # scaleFac[1,1] = currentSize[1] / originalSieze[1]
+                    # scaleFac = torch.Tensor(scaleFac).view(1,4,4).repeat(opt.batch_size, 1, 1).cuda()
+                    # scaledIntrinsic = scaleFac @ inputs['realIn']
+                    scaledIntrinsic = inputs['realIn']
+                    depthGuess.visualizeDepthGuess(realDepth=depthMap, dispAct=dispMap, foredgroundMask = foreGroundMask, wallTypeMask=wallTypeMask, groundTypeMask=roadTypeMask, intrinsic= scaledIntrinsic, extrinsic=inputs['realEx'], semantic = inputs['seman_gt_eval'], cts_meta = inputs['cts_meta'], viewInd=index)
+                    # realDepth, foredgroundMask, wallTypeMask, groundTypeMask, intrinsic, extrinsic
 
                 fig_rgb = tensor2rgb(inputs[('color', 0, 0)], ind=index)
                 fig_disp = tensor2disp(outputs[('disp', 0)], ind=index)

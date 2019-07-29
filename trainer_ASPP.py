@@ -16,6 +16,7 @@ from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
 
 import json
+import networks.DenseASPP
 
 from utils import *
 from kitti_utils import *
@@ -32,7 +33,7 @@ from cityscapesscripts.evaluation.evalPixelLevelSemanticLabeling import *
 
 torch.manual_seed(0)
 
-class Trainer:
+class Trainer_ASPP:
     def __init__(self, options):
         self.opt = options
         self.log_path = os.path.join(self.opt.log_dir, self.opt.model_name)
@@ -64,27 +65,36 @@ class Trainer:
         if self.opt.use_stereo:
             self.opt.frame_ids.append("s")
 
-        self.models["encoder"] = networks.ResnetEncoder(
-            self.opt.num_layers, self.opt.weights_init == "pretrained")
-        self.models["encoder"].to(self.device)
-        self.parameters_to_train += list(self.models["encoder"].parameters())
+        self.Model_CFG = {
+            'bn_size': 4,
+            'drop_rate': 0,
+            'growth_rate': 32,
+            'num_init_features': 64,
+            'block_config': (6, 12, 24, 16),
 
-        self.models["depth"] = networks.DepthDecoder(
-            self.models["encoder"].num_ch_enc, self.opt.scales, isSwitch=self.switchMode, isMulChannel=self.opt.isMulChannel)
+            'dropout0': 0.1,
+            'dropout1': 0.1,
+            'd_feature0': 128,
+            'd_feature1': 64,
+        }
+        self.N_CLASS = 19
+        self.models["depth"] = networks.DenseASPP(self.Model_CFG, n_class=self.N_CLASS, output_stride=8)
         self.models["depth"].to(self.device)
+
+        # self.models["encoder"] = networks.ResnetEncoder(
+        #     self.opt.num_layers, self.opt.weights_init == "pretrained")
+        # self.models["encoder"].to(self.device)
+        # self.parameters_to_train += list(self.models["encoder"].parameters())
+        # self.models["depth"] = networks.DepthDecoder(
+        #     self.models["encoder"].num_ch_enc, self.opt.scales, isSwitch=self.switchMode, isMulChannel=self.opt.isMulChannel)
+        # self.models["depth"].to(self.device)
+
         self.parameters_to_train += list(self.models["depth"].parameters())
-
-        # if self.opt.predictive_mask:
-        #     self.models["predictive_mask"] = networks.DepthDecoder(
-        #         self.models["encoder"].num_ch_enc, self.opt.scales,
-        #         num_output_channels=(len(self.opt.frame_ids) - 1))
-        #     self.models["predictive_mask"].to(self.device)
-        #     self.parameters_to_train += list(self.models["predictive_mask"].parameters())
-
-        self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate)
-        # self.model_optimizer = optim.SGD(self.parameters_to_train, self.opt.learning_rate)
-        self.model_lr_scheduler = optim.lr_scheduler.StepLR(
-            self.model_optimizer, self.opt.scheduler_step_size, 0.1)
+        self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate, weight_decay=0.00001)
+        # lr_lambda = torch.Tensor(np.power(1 - np.arange(self.opt.num_epochs) / self.opt.num_epochs, 0.9))
+        # lr_lambda = np.power(1 - np.arange(self.opt.num_epochs) / self.opt.num_epochs, 0.9)
+        lambda1 = lambda epoch, max_epoch = self.opt.num_epochs: np.power(1 - epoch / max_epoch, 0.9)
+        self.model_lr_scheduler = optim.lr_scheduler.LambdaLR(self.model_optimizer, lr_lambda = [lambda1])
 
         if self.opt.load_weights_folder is not None:
             self.load_model()
@@ -121,7 +131,7 @@ class Trainer:
     def set_layers(self):
         """properly handle layer initialization under multiple dataset situation
         """
-        self.semanticLoss = Compute_SemanticLoss(min_scale = self.opt.semantic_minscale[0])
+        self.semanticLoss = Compute_SemanticLoss(min_scale = np.array(self.opt.scales).max())
         self.merge_multDisp = Merge_MultDisp(self.opt.scales, batchSize = self.opt.batch_size, isMulChannel = self.opt.isMulChannel)
         self.compsurfnorm = {}
         self.backproject_depth = {}
@@ -176,17 +186,6 @@ class Trainer:
             self.rdSampleOnBorder = RandomSampleNeighbourPts(batchNum=self.opt.batch_size)
             self.rdSampleOnBorder.cuda()
 
-        if self.opt.borderSemanReg:
-            self.tDevice = torch.device("cuda")
-            self.wallType = [2, 3, 4]  # Building, wall, fence
-            self.roadType = [0, 1, 9]  # road, sidewalk, terrain
-            self.foregroundType = [5, 6, 7, 11, 12, 13, 14, 15, 16, 17, 18]  # pole, traffic light, traffic sign, person, rider, car, truck, bus, train, motorcycle, bicycle
-            self.borderSemanReg = {}
-            for p, tag in enumerate(tags):
-                height = self.format[p][1]
-                width = self.format[p][2]
-                self.borderSemanReg[tag] = DepthGuessesBySemantics(batchNum=self.opt.batch_size, width=width, height=height).cuda()
-
 
     def set_dataset(self):
         """properly handle multiple dataset situation
@@ -214,13 +213,13 @@ class Trainer:
 
             train_dataset = initFunc(
                 datapath_set[i], train_filenames, self.opt.height, self.opt.width,
-                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=True, img_ext=img_ext, load_meta=self.opt.load_meta)
+                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=True, img_ext=img_ext, is_sep_train_seman = self.opt.is_sep_train_seman)
             train_sample_num[i] = train_dataset.__len__()
             stacked_train_datasets.append(train_dataset)
 
             val_dataset = initFunc(
                 datapath_set[i], val_filenames, self.opt.height, self.opt.width,
-                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=False, img_ext=img_ext, load_meta=self.opt.load_meta)
+                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=False, img_ext=img_ext, is_sep_train_seman = self.opt.is_sep_train_seman)
             val_sample_num[i] = val_dataset.__len__()
             stacked_val_datasets.append(val_dataset)
 
@@ -238,6 +237,7 @@ class Trainer:
             joint_dataset_val, self.opt.batch_size, shuffle=False, sampler=valSample,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
         self.val_iter = iter(self.val_loader)
+        self.train_iter = iter(self.train_loader)
 
         num_train_samples = self.joint_dataset_train.__len__()
         self.train_num = self.joint_dataset_train.__len__()
@@ -253,8 +253,12 @@ class Trainer:
     def set_eval(self):
         """Convert all models to testing/evaluation mode
         """
-        for m in self.models.values():
-            m.eval()
+        if not self.is_use_sep_seman_train():
+            for m in self.models.values():
+                m.eval()
+        else:
+            for m in self.models.values():
+                m.train()
 
     def train(self):
         """Run the entire training pipeline
@@ -317,7 +321,7 @@ class Trainer:
                     self.compute_depth_losses(inputs, outputs, losses)
 
                 self.log("train", inputs, outputs, losses, writeImage=False)
-                if self.step % self.opt.val_frequency == 0:
+                if self.step % 10 == 0:
                     self.val()
 
             # timeCount = np.array((self.timeSpan_decoder, self.timeSpan_mergeLayer, self.timeSpan_predict, self.timeSpan_loss))
@@ -325,14 +329,15 @@ class Trainer:
             # print("Time util: | decoder:%f | mergeLayer:%f | prediction:%f | loss:%f | smoothLoss:%f | weighRatio:%f |" % (timeCount[0], timeCount[1], timeCount[2], timeCount[3], self.timeSpan_dispSmooth/self.timeSpan_loss, self.merge_multDisp.weights_time / self.timeSpan_mergeLayer))
             self.step += 1
 
+
     def process_batch(self, inputs):
         """Pass a minibatch through the network and generate images and losses
         """
         for key, ipt in inputs.items():
-            if not(key == 'height' or key == 'width' or key == 'tag' or key == 'cts_meta'):
+            if not(key == 'height' or key == 'width' or key == 'tag'):
                 inputs[key] = ipt.to(self.device)
 
-        features = self.models["encoder"](inputs["color_aug", 0, 0])
+        # features = self.models["encoder"](inputs["color_aug", 0, 0])
         # just for check
         """
         i = 1
@@ -346,42 +351,74 @@ class Trainer:
         # end_decoder = torch.cuda.Event(enable_timing=True)
         # Switch between semantic and depth estimation
         # start_decoder.record()
+
+        # for i in range(self.opt.batch_size):
+            # semanlabbel = inputs['seman_gt'][i, 0, :, :].cpu().numpy().astype(np.uint8)
+            # visualize_semantic(semanlabbel).show()
+
+            # semanlabbel = inputs['seperate_seman_gt'][i, 0, :, :].cpu().numpy().astype(np.uint8)
+            # visualize_semantic(semanlabbel).show()
+
+            # img = pil.fromarray(
+            #     (inputs[("seperate_seman_rgb")].permute(0, 2, 3, 1)[i, :, :, :].cpu().numpy() * 255).astype(np.uint8))
+            # img.show()
+
+            # img = pil.fromarray(
+            #     (inputs[('color', 0, 0)].permute(0, 2, 3, 1)[i, :, :, :].cpu().numpy() * 255).astype(np.uint8))
+            # img.show()
+
+            # img = pil.fromarray(
+            #     (inputs[('color', 's', 0)].permute(0, 2, 3, 1)[i, :, :, :].cpu().numpy() * 255).astype(np.uint8))
+            # img.show()
+
+            # img = pil.fromarray(
+            #     (inputs[('color_aug', 0, 0)].permute(0, 2, 3, 1)[i, :, :, :].cpu().numpy() * 255).astype(np.uint8))
+            # img.show()
+
+            # img = pil.fromarray(
+            #     (inputs[('color_aug', 's', 0)].permute(0, 2, 3, 1)[i, :, :, :].cpu().numpy() * 255).astype(np.uint8))
+            # img.show()
+
+
         outputs = dict()
         if not self.opt.banSemantic:
-            outputs.update(self.models["depth"](features, computeSemantic = True, computeDepth = False))
+            if not self.is_use_sep_seman_train():
+                outputs.update(self.models["depth"](inputs["color_aug", 0, 0], computeSemantic = True, computeDepth = False))
+            else:
+                outputs.update(self.models["depth"](inputs['seperate_seman_rgb'], computeSemantic=True, computeDepth=False))
         if not self.opt.banDepth:
-            outputs.update(self.models["depth"](features, computeSemantic = False, computeDepth = True))
-        # end_decoder.record()
-        # torch.cuda.synchronize()
-        # self.timeSpan_decoder = self.timeSpan_decoder + start_decoder.elapsed_time(end_decoder)
+            outputs.update(self.models["depth"](inputs["color_aug", 0, 0], computeSemantic = False, computeDepth = True))
 
-        # start_merge = torch.cuda.Event(enable_timing=True)
-        # end_merge = torch.cuda.Event(enable_timing=True)
-        # start_merge.record()
+
         self.merge_multDisp(inputs, outputs)
-        # end_merge.record()
-        # torch.cuda.synchronize()
-        # self.timeSpan_mergeLayer = self.timeSpan_mergeLayer + start_merge.elapsed_time(end_merge)
-
-        # start_predict = torch.cuda.Event(enable_timing=True)
-        # end_predict = torch.cuda.Event(enable_timing=True)
-        # start_predict.record()
-        self.generate_images_pred(inputs, outputs)
-        # end_predict.record()
-        # torch.cuda.synchronize()
-        # self.timeSpan_predict = self.timeSpan_predict + start_predict.elapsed_time(end_predict)
-
-        # start_loss = torch.cuda.Event(enable_timing=True)
-        # end_loss = torch.cuda.Event(enable_timing=True)
-        # start_loss.record()
+        if not self.opt.banDepth:
+            self.generate_images_pred(inputs, outputs)
         losses = self.compute_losses(inputs, outputs)
-        # end_loss.record()
-        # torch.cuda.synchronize()
-        # self.timeSpan_loss = self.timeSpan_loss + start_loss.elapsed_time(end_loss)
-        # losses['loss'].backward()
-        # grad_sample =self.models['depth'].decoder[0].conv_pos.conv.weight.grad
-        # print(torch.sum(torch.abs(grad_sample)))
+
+        #-1.8883
+        # check
+        # inputs = self.val_iter.next()
+        # for key, ipt in inputs.items():
+        #     if not(key == 'height' or key == 'width' or key == 'tag'):
+        #         inputs[key] = ipt.to(self.device)
+        # outputs = dict()
+        # if not self.opt.banSemantic:
+        #     outputs.update(self.models["depth"](inputs["color_aug", 0, 0], computeSemantic = True, computeDepth = False))
+        # gt = inputs['seman_gt_eval'].cpu().numpy().astype(np.uint8)
+        # pred = self.sfx(outputs[('seman', 0)]).detach()
+        # pred = torch.argmax(pred, dim=1).type(torch.float).unsqueeze(1)
+        # pred = F.interpolate(pred, [gt.shape[1], gt.shape[2]], mode='nearest')
+        # pred = pred.squeeze(1).cpu().numpy().astype(np.uint8)
+        # visualize_semantic(gt[0, :, :]).show()
+        # visualize_semantic(pred[0, :, :]).show()
         return outputs, losses
+    def is_use_sep_seman_train(self):
+        if self.opt.num_epochs - self.epoch <= 20:
+            print("Not use")
+            return False
+        else:
+            return True
+
     def is_regress_dispLoss(self, inputs, outputs):
         # if there are stereo images, we compute depth
         if ('color', 0, 0) in inputs and ('color', 's', 0) in inputs and ('disp', 0) in outputs:
@@ -752,35 +789,6 @@ class Trainer:
                     # BdErrFig, viewRdErrFig = self.objReg.visualize_regularizeBuildingRoad(surnormMap, wallMask, roadMask, outputs[('disp', 0)], viewInd=viewInd)
                     # surVarFig = self.objReg.visualize_regularizePoleSign(surnormMap, permuMask, outputs[('disp', 0)], viewInd=viewInd)
 
-                if self.opt.borderSemanReg:
-                    if 'seman_gt' in inputs:
-                        wallTypeMask = torch.ones(outputs[('disp', scale)].shape, device=self.tDevice).byte()
-                        roadTypeMask = torch.ones(outputs[('disp', scale)].shape, device=self.tDevice).byte()
-                        foreGroundMask = torch.ones(outputs[('disp', scale)].shape, device=self.tDevice).byte()
-
-                        with torch.no_grad():
-                            for m in self.wallType:
-                                wallTypeMask = wallTypeMask * (inputs['seman_gt'] != m)
-                            wallTypeMask = (1 - wallTypeMask).float()
-
-                            for m in self.roadType:
-                                roadTypeMask = roadTypeMask * (inputs['seman_gt'] != m)
-                            roadTypeMask = (1 - roadTypeMask).float()
-
-                            for m in self.foregroundType:
-                                foreGroundMask = foreGroundMask * (inputs['seman_gt'] != m)
-                            foreGroundMask = (1 - foreGroundMask).float()
-                        # if scale == 2:
-                        #     self.borderSemanReg.visualizeDepthGuess(realDepth=outputs[('depth', 0, scale)] * self.STEREO_SCALE_FACTOR, dispAct=outputs[('disp', scale)], foredgroundMask = foreGroundMask, wallTypeMask=wallTypeMask, groundTypeMask=roadTypeMask, intrinsic= inputs['realIn'], extrinsic=inputs['realEx'], semantic = inputs['seman_gt_eval'], cts_meta = inputs['cts_meta'], viewInd=0)
-                        lossRoad, lossWall = self.borderSemanReg[inputs['tag'][0]].regBySeman(realDepth=outputs[('depth', 0, scale)] * self.STEREO_SCALE_FACTOR, dispAct=outputs[('disp', scale)], foredgroundMask = foreGroundMask, wallTypeMask=wallTypeMask, groundTypeMask=roadTypeMask, intrinsic= inputs['realIn'], extrinsic=inputs['realEx'])
-                        # loss = loss + (lossRoad * 0 + lossWall * 1) * self.opt.borderSemanRegScale
-                        loss = loss + (lossRoad * 0.5 * 0.5 * self.opt.borderSemanRegScale_Road + lossWall * 0.5 * self.opt.borderSemanRegScale_Wall)
-                        if scale == 0:
-                            losses["loss_reg/{}".format("borderSemanRoad")] = lossRoad
-                            losses["loss_reg/{}".format("borderSemanWall")] = lossWall
-
-
-
                 if self.opt.disparity_smoothness > 1e-10:
                     # if outputs[('mul_disp', scale)].shape[1] > 1:
                     #     mult_disp = outputs[('mul_disp', scale)][:,0:-1:,:]
@@ -797,7 +805,7 @@ class Trainer:
             loss = loss / self.num_scales
             losses["loss_depth"] = ssimLossMean / self.num_scales
         if self.is_regress_semanticLoss(inputs, outputs):
-            loss_seman, loss_semantoshow = self.semanticLoss(inputs, outputs) # semantic loss is scaled already
+            loss_seman, loss_semantoshow = self.semanticLoss(inputs, outputs, use_sep_semant_train = self.is_use_sep_seman_train()) # semantic loss is scaled already
             for entry in loss_semantoshow:
                 losses[entry] = loss_semantoshow[entry]
             loss = loss + self.semanticCoeff * loss_seman
@@ -814,7 +822,10 @@ class Trainer:
         This isn't particularly accurate as it averages over the entire batch,
         so is only used to give an indication of validation performance
         """
-        gt = inputs['seman_gt_eval'].cpu().numpy().astype(np.uint8)
+        if not self.is_use_sep_seman_train():
+            gt = inputs['seman_gt_eval'].cpu().numpy().astype(np.uint8)
+        else:
+            gt = inputs['seperate_seman_gt'][:,0,:,:].cpu().numpy().astype(np.uint8)
         pred = self.sfx(outputs[('seman', 0)]).detach()
         pred = torch.argmax(pred, dim=1).type(torch.float).unsqueeze(1)
         pred = F.interpolate(pred, [gt.shape[1], gt.shape[2]], mode='nearest')
@@ -914,25 +925,21 @@ class Trainer:
                 writer.add_scalar("{}".format(l), v, self.step)
 
         if writeImage:
-            viewInd = 1
             cm = plt.get_cmap('magma')
-            dispimg = outputs[("disp", 0)][viewInd,0,:,:].cpu().numpy()
-            dispimg = dispimg / 0.07
+            dispimg = outputs[("disp", 0)][0,0,:,:].cpu().numpy()
+            dispimg = dispimg / 0.1
             viewmask = (cm(dispimg) * 255).astype(np.uint8)
             # pil.fromarray(viewmask).save("/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/trianReCompare/" + str(self.step) + ".png")
 
-            slice = inputs['seman_gt'][viewInd, 0, :, :].cpu().numpy()
+            slice = inputs['seman_gt'][0, 0, :, :].cpu().numpy()
             seman = visualize_semantic(slice)
             overlay = (np.array(viewmask[:,:,0:3]) * 0.7 + 0.3 * np.array(seman)).astype(np.uint8)
-            if self.opt.selfocclu:
-                dispSuppressed = (outputs[("disp", 0)] * (1 - outputs['ssimMask']))[viewInd,0,:,:].cpu().numpy()
-                dispSuppressed = dispSuppressed / 0.1
-                viewSupmask = (cm(dispSuppressed) * 255).astype(np.uint8)
-                supoverlay = (np.array(viewSupmask[:, :, 0:3]) * 0.7 + 0.3 * np.array(seman)).astype(np.uint8)
-                overlay = np.concatenate([overlay, viewmask[:, :, 0:3], viewSupmask[:, :, 0:3], supoverlay[:,:,0:3]], axis=0)
-            else:
-                overlay = np.concatenate([overlay, viewmask[:, :, 0:3]],
-                                         axis=0)
+
+            dispSuppressed = (outputs[("disp", 0)] * (1 - outputs['ssimMask']))[0,0,:,:].cpu().numpy()
+            dispSuppressed = dispSuppressed / 0.1
+            viewSupmask = (cm(dispSuppressed) * 255).astype(np.uint8)
+            supoverlay = (np.array(viewSupmask[:, :, 0:3]) * 0.7 + 0.3 * np.array(seman)).astype(np.uint8)
+            overlay = np.concatenate([overlay, viewmask[:, :, 0:3], viewSupmask[:, :, 0:3], supoverlay[:,:,0:3]], axis=0)
 
             pil.fromarray(overlay).save("/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/trianReCompare/" + str(self.step) + ".png")
             # for j in range(min(4, self.opt.batch_size)):
@@ -971,14 +978,6 @@ class Trainer:
         for model_name, model in self.models.items():
             save_path = os.path.join(save_folder, "{}.pth".format(model_name))
             to_save = model.state_dict()
-            if model_name == 'encoder':
-                # save the sizes - these are needed at prediction time
-                to_save['height'] = self.opt.height
-                to_save['width'] = self.opt.width
-                to_save['use_stereo'] = self.opt.use_stereo
-                # to_save['item_recList'] = self.joint_dataset_train.item_recList
-            # cpk_dict = self.generate_cpk(model.state_dict())
-            # to_save['cpk_dict'] = cpk_dict # To check load correctness
             torch.save(to_save, save_path)
 
         save_path = os.path.join(save_folder, "{}.pth".format("adam"))
@@ -1011,14 +1010,3 @@ class Trainer:
             self.model_optimizer.load_state_dict(optimizer_dict)
         else:
             print("Cannot find Adam weights so Adam is randomly initialized")
-
-    # def multi_stage_training(self, setting_file_path = None):
-    #     schedule = list()
-    #     if setting_file_path is None:
-    #         schedule.append(np.array([1,1,self.opt.num_epochs])) # ratio is 1 by 1
-    #     else:
-    #         f = open(setting_file_path, 'r')
-    #         x = f.readlines()
-    #         f.close()
-    #         schedule = schedule + x
-    #     return schedule
