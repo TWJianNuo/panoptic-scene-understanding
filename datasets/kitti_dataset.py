@@ -130,7 +130,6 @@ class KITTIDataset(SingleDataset):
         # miny = ptsprojected[:, 1].min()
         # maxy = ptsprojected[:, 1].max()
         # P_rect @ R_cam2rect @ velo2cam - (realIn @ realEx)[0:3,:]
-        # camK - (realIn @ realEx)
         return camK, invcamK, realIn, realEx, velo
 
 class KITTIRAWDataset(KITTIDataset):

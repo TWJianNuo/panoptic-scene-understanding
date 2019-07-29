@@ -313,10 +313,10 @@ class SingleDataset(data.Dataset):
         inputs["tag"] = self.tag # final image tags
         camK, invcamK, realIn, realEx, velo = self.get_camK(folder, frame_index)
 
-        inputs["camK"] = camK # Intrinsic by extrinsic
-        inputs["invcamK"] = invcamK # inverse of Intrinsic by extrinsic
-        inputs["realIn"] = realIn # Intrinsic
-        inputs["realEx"] = realEx # Extrinsic, possibly edited to form in accordance with kitti
+        inputs["camK"] = torch.from_numpy(camK).float() # Intrinsic by extrinsic
+        inputs["invcamK"] = torch.from_numpy(invcamK).float() # inverse of Intrinsic by extrinsic
+        inputs["realIn"] = torch.from_numpy(realIn).float() # Intrinsic
+        inputs["realEx"] = torch.from_numpy(realEx).float() # Extrinsic, possibly edited to form in accordance with kitti
         if velo is not None:
             inputs["velo"] = velo
         return inputs

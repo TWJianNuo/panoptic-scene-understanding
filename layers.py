@@ -468,7 +468,7 @@ class ComputeSurfaceNormal(nn.Module):
 
         # colorize this figure
         surfacecolor = surfnorm / 2 + 0.5
-        img = surfacecolor[viewindex, :, :, :].permute(1,2,0).cpu().numpy()
+        img = surfacecolor[viewindex, :, :, :].permute(1,2,0).detach().cpu().numpy()
         img = (img * 255).astype(np.uint8)
         # pil.fromarray(img).show()
 
@@ -543,7 +543,7 @@ class SelfOccluMask(nn.Module):
             convweights[i, 0, :, 0:2] = 1/6
             convweights[i, 0, :, i+2:i+3] = -1/3
         self.conv = torch.nn.Conv2d(in_channels=1, out_channels=self.maxDisp, kernel_size=(3,self.maxDisp + 2), stride=1, padding=self.pad, bias=False)
-        self.conv.bias = nn.Parameter(torch.arange(self.maxDisp).type(torch.FloatTensor), requires_grad=False)
+        self.conv.bias = nn.Parameter(torch.arange(self.maxDisp).type(torch.FloatTensor) + 1, requires_grad=False)
         self.conv.weight = nn.Parameter(convweights, requires_grad=False)
 
         # convweights_opp = torch.flip(convweights, dims=[1])
@@ -566,44 +566,76 @@ class SelfOccluMask(nn.Module):
             mask = torch.zeros_like(dispmap)
             mask[lind,:, :, :] = maskl[lind,:, :, :]
             mask[rind, :, :, :] = maskr[rind, :, :, :]
+
+            # viewInd = 3
+            # cm = plt.get_cmap('magma')
+            # viewSSIMMask = mask[viewInd, 0, :, :].detach().cpu().numpy()
+            # vmax = np.percentile(viewSSIMMask, 95)
+            # viewSSIMMask = (cm(viewSSIMMask / vmax) * 255).astype(np.uint8)
+            # pil.fromarray(viewSSIMMask).show()
             return mask
     def computeMask(self, dispmap, direction):
         with torch.no_grad():
             width = dispmap.shape[3]
             if direction == 'l':
+                # output = self.conv(dispmap)
+                # output = torch.min(output, dim=1, keepdim=True)[0]
+                # output = output[:,:,self.pad-1:-(self.pad-1):,-width:]
+                # mask = torch.tanh(-output * self.boostfac)
+                # mask = mask.masked_fill(mask < 0.9, 0)
                 output = self.conv(dispmap)
+                output = torch.clamp(output, max=0)
                 output = torch.min(output, dim=1, keepdim=True)[0]
-                output = output[:,:,self.pad-1:-(self.pad-1):,-width:]
-                mask = torch.tanh(-output * self.boostfac)
-                # mask = mask.masked_fill(mask < 0.8, 0)
-                mask = mask.masked_fill(mask < 0.9, 0)
-                # mask = mask.masked_fill(mask < 0, 0)
+                output = output[:, :, self.pad - 1:-(self.pad - 1):, -width:]
+                output = torch.tanh(-output)
+                mask = (output > 0.05).float()
+                # mask = (mask > 0.05).float()
             elif direction == 'r':
+                # dispmap_opp = torch.flip(dispmap, dims=[3])
+                # output_opp = self.conv(dispmap_opp)
+                # output_opp = torch.min(output_opp, dim=1, keepdim=True)[0]
+                # output_opp = output_opp[:, :, self.pad - 1:-(self.pad - 1):, -width:]
+                # mask = torch.tanh(-output_opp * self.boostfac)
+                # mask = mask.masked_fill(mask < 0.9, 0)
+                # mask = torch.flip(mask, dims=[3])
                 dispmap_opp = torch.flip(dispmap, dims=[3])
                 output_opp = self.conv(dispmap_opp)
+                output_opp = torch.clamp(output_opp, max=0)
                 output_opp = torch.min(output_opp, dim=1, keepdim=True)[0]
                 output_opp = output_opp[:, :, self.pad - 1:-(self.pad - 1):, -width:]
-                mask = torch.tanh(-output_opp * self.boostfac)
-                # mask = mask.masked_fill(mask < 0.8, 0)
-                mask = mask.masked_fill(mask < 0.9, 0)
-                # mask = mask.masked_fill(mask < 0, 0)
+                output_opp = torch.tanh(-output_opp)
+                mask = (output_opp > 0.05).float()
                 mask = torch.flip(mask, dims=[3])
+
+                # viewInd = 0
+                # cm = plt.get_cmap('magma')
+                # viewSSIMMask = mask[viewInd, 0, :, :].detach().cpu().numpy()
+                # vmax = np.percentile(viewSSIMMask, 95)
+                # viewSSIMMask = (cm(viewSSIMMask / vmax) * 255).astype(np.uint8)
+                # pil.fromarray(viewSSIMMask).show()
+
+
+                # viewdisp = dispmap[viewInd, 0, :, :].detach().cpu().numpy()
+                # vmax = np.percentile(viewdisp, 90)
+                # viewdisp = (cm(viewdisp / vmax) * 255).astype(np.uint8)
+                # pil.fromarray(viewdisp).show()
             return mask
     def visualize(self, dispmap, viewind = 0):
         cm = plt.get_cmap('magma')
 
-        # pad = int(self.maxDisp + 2 -1) / 2
-        # dispmap = self.gausconv(dispmap)
-        # height = dispmap.shape[2]
         width = dispmap.shape[3]
         output = self.conv(dispmap)
+        output = torch.clamp(output, max=0)
+        # output = torch.abs(output + 1)
         output = torch.min(output, dim=1, keepdim=True)[0]
         output = output[:,:,self.pad-1:-(self.pad-1):,-width:]
-        # output = output[:,:,pad:-pad, pad:-pad]
-        mask = torch.tanh(-output * self.boostfac)
-        # mask = torch.clamp(mask, min=0)
-        # mask = mask.masked_fill(mask < 0.8, 0)
-        mask = mask.masked_fill(mask < 0.9, 0)
+        output = torch.tanh(-output)
+        mask = output
+        mask = mask > 0.1
+        # a = output[0,0,:,:].detach().cpu().numpy()
+        # mask = torch.tanh(-output) + 1
+        # mask = torch.tanh(-output * self.boostfac)
+        # mask = mask.masked_fill(mask < 0.9, 0)
 
         dispmap_opp = torch.flip(dispmap, dims=[3])
         output_opp = self.conv(dispmap_opp)
@@ -629,17 +661,23 @@ class SelfOccluMask(nn.Module):
 
         viewmask = mask[viewind, 0, :, :].detach().cpu().numpy()
         viewmask = (cm(viewmask)* 255).astype(np.uint8)
-        # pil.fromarray(viewmask).show()
+        pil.fromarray(viewmask).show()
 
         viewmask_opp = mask_opp[viewind, 0, :, :].detach().cpu().numpy()
         viewmask_opp = (cm(viewmask_opp)* 255).astype(np.uint8)
         # pil.fromarray(viewmask_opp).show()
 
-        dispmap = dispmap * (1 - mask)
+        # dispmap = dispmap * (1 - mask)
         viewdisp = dispmap[viewind, 0, :, :].detach().cpu().numpy()
         vmax = np.percentile(viewdisp, 90)
         viewdisp = (cm(viewdisp / vmax)* 255).astype(np.uint8)
-        # pil.fromarray(viewdisp).show()
+        pil.fromarray(viewdisp).show()
+
+        dispmap_sup = dispmap * (1 - mask.float())
+        view_dispmap_sup = dispmap_sup[viewind, 0, :, :].detach().cpu().numpy()
+        vmax = np.percentile(view_dispmap_sup, 90)
+        view_dispmap_sup = (cm(view_dispmap_sup / vmax) * 255).astype(np.uint8)
+        pil.fromarray(view_dispmap_sup).show()
 
         # viewdisp_opp = dispmap_opp[viewind, 0, :, :].detach().cpu().numpy()
         # vmax = np.percentile(viewdisp_opp, 90)
