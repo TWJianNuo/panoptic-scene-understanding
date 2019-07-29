@@ -753,30 +753,31 @@ class Trainer:
                     # surVarFig = self.objReg.visualize_regularizePoleSign(surnormMap, permuMask, outputs[('disp', 0)], viewInd=viewInd)
 
                 if self.opt.borderSemanReg:
-                    wallTypeMask = torch.ones(outputs[('disp', scale)].shape, device=self.tDevice).byte()
-                    roadTypeMask = torch.ones(outputs[('disp', scale)].shape, device=self.tDevice).byte()
-                    foreGroundMask = torch.ones(outputs[('disp', scale)].shape, device=self.tDevice).byte()
+                    if 'seman_gt' in inputs:
+                        wallTypeMask = torch.ones(outputs[('disp', scale)].shape, device=self.tDevice).byte()
+                        roadTypeMask = torch.ones(outputs[('disp', scale)].shape, device=self.tDevice).byte()
+                        foreGroundMask = torch.ones(outputs[('disp', scale)].shape, device=self.tDevice).byte()
 
-                    with torch.no_grad():
-                        for m in self.wallType:
-                            wallTypeMask = wallTypeMask * (inputs['seman_gt'] != m)
-                        wallTypeMask = (1 - wallTypeMask).float()
+                        with torch.no_grad():
+                            for m in self.wallType:
+                                wallTypeMask = wallTypeMask * (inputs['seman_gt'] != m)
+                            wallTypeMask = (1 - wallTypeMask).float()
 
-                        for m in self.roadType:
-                            roadTypeMask = roadTypeMask * (inputs['seman_gt'] != m)
-                        roadTypeMask = (1 - roadTypeMask).float()
+                            for m in self.roadType:
+                                roadTypeMask = roadTypeMask * (inputs['seman_gt'] != m)
+                            roadTypeMask = (1 - roadTypeMask).float()
 
-                        for m in self.foregroundType:
-                            foreGroundMask = foreGroundMask * (inputs['seman_gt'] != m)
-                        foreGroundMask = (1 - foreGroundMask).float()
-                    # if scale == 2:
-                    #     self.borderSemanReg.visualizeDepthGuess(realDepth=outputs[('depth', 0, scale)] * self.STEREO_SCALE_FACTOR, dispAct=outputs[('disp', scale)], foredgroundMask = foreGroundMask, wallTypeMask=wallTypeMask, groundTypeMask=roadTypeMask, intrinsic= inputs['realIn'], extrinsic=inputs['realEx'], semantic = inputs['seman_gt_eval'], cts_meta = inputs['cts_meta'], viewInd=0)
-                    lossRoad, lossWall = self.borderSemanReg[inputs['tag'][0]].regBySeman(realDepth=outputs[('depth', 0, scale)] * self.STEREO_SCALE_FACTOR, dispAct=outputs[('disp', scale)], foredgroundMask = foreGroundMask, wallTypeMask=wallTypeMask, groundTypeMask=roadTypeMask, intrinsic= inputs['realIn'], extrinsic=inputs['realEx'])
-                    # loss = loss + (lossRoad * 0 + lossWall * 1) * self.opt.borderSemanRegScale
-                    loss = loss + (lossRoad * 0.5 * 0.5 * self.opt.borderSemanRegScale_Road + lossWall * 0.5 * self.opt.borderSemanRegScale_Wall)
-                    if scale == 0:
-                        losses["loss_reg/{}".format("borderSemanRoad")] = lossRoad
-                        losses["loss_reg/{}".format("borderSemanWall")] = lossWall
+                            for m in self.foregroundType:
+                                foreGroundMask = foreGroundMask * (inputs['seman_gt'] != m)
+                            foreGroundMask = (1 - foreGroundMask).float()
+                        # if scale == 2:
+                        #     self.borderSemanReg.visualizeDepthGuess(realDepth=outputs[('depth', 0, scale)] * self.STEREO_SCALE_FACTOR, dispAct=outputs[('disp', scale)], foredgroundMask = foreGroundMask, wallTypeMask=wallTypeMask, groundTypeMask=roadTypeMask, intrinsic= inputs['realIn'], extrinsic=inputs['realEx'], semantic = inputs['seman_gt_eval'], cts_meta = inputs['cts_meta'], viewInd=0)
+                        lossRoad, lossWall = self.borderSemanReg[inputs['tag'][0]].regBySeman(realDepth=outputs[('depth', 0, scale)] * self.STEREO_SCALE_FACTOR, dispAct=outputs[('disp', scale)], foredgroundMask = foreGroundMask, wallTypeMask=wallTypeMask, groundTypeMask=roadTypeMask, intrinsic= inputs['realIn'], extrinsic=inputs['realEx'])
+                        # loss = loss + (lossRoad * 0 + lossWall * 1) * self.opt.borderSemanRegScale
+                        loss = loss + (lossRoad * 0.5 * 0.5 * self.opt.borderSemanRegScale_Road + lossWall * 0.5 * self.opt.borderSemanRegScale_Wall)
+                        if scale == 0:
+                            losses["loss_reg/{}".format("borderSemanRoad")] = lossRoad
+                            losses["loss_reg/{}".format("borderSemanWall")] = lossWall
 
 
 

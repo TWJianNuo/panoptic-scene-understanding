@@ -1931,8 +1931,10 @@ class RandomSampleNeighbourPts(nn.Module):
 class DepthGuessesBySemantics(nn.Module):
     def __init__(self, width, height, batchNum=10):
         super(DepthGuessesBySemantics, self).__init__()
-        self.wdSize = 11  # Generate points within a window of 5 by 5
-        self.ptsNum = 500  # Each image generate 50000 number of points
+        # self.wdSize = 11  # Generate points within a window of 5 by 5
+        self.wdSize = 17  # Generate points within a window of 5 by 5
+        # self.ptsNum = 500  # Each image generate 50000 number of points
+        self.ptsNum = 1000
         self.smapleDense = 200  # For each position, sample 20 points
         self.batchNum = batchNum
         self.width = width
@@ -1979,7 +1981,8 @@ class DepthGuessesBySemantics(nn.Module):
 
         self.seman_convx.weight = nn.Parameter(weightsx,requires_grad=False)
         self.seman_convy.weight = nn.Parameter(weightsy,requires_grad=False)
-        self.expand = torch.nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
+        # self.expand = torch.nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
+        self.expand = torch.nn.MaxPool2d(kernel_size=7, stride=1, padding=3)
         self.expand_road = torch.nn.MaxPool2d(kernel_size=7, stride=1, padding=3)
     def regBySeman(self, realDepth, dispAct, foredgroundMask, wallTypeMask, groundTypeMask, intrinsic, extrinsic):
         with torch.no_grad():
@@ -2033,7 +2036,8 @@ class DepthGuessesBySemantics(nn.Module):
         # Wall Part
         with torch.no_grad():
             maskGrad = torch.abs(self.seman_convx(foredgroundMask)) + torch.abs(self.seman_convy(foredgroundMask))
-            maskGrad = self.expand(maskGrad) * (dispAct > 7e-3).float()
+            # maskGrad = self.expand(maskGrad) * (dispAct > 7e-3).float()
+            maskGrad = self.expand(maskGrad) * (dispAct > 1e-2).float()
             maskGrad = torch.clamp(maskGrad, min=3) - 3
             maskGrad[:, :, self.zeroArea, :] = 0
             maskGrad[:, :, :, self.zeroArea] = 0
@@ -2064,8 +2068,9 @@ class DepthGuessesBySemantics(nn.Module):
         sourceDisp = dispAct[channelInd, 0, centery, centerx]
         targetDisp = dispAct[channelInd, 0, sampledy_pair, sampledx_pair]
         # errSel = (sourceDisp / targetDisp > 1.15).float()
-        # lossWall = torch.sum(torch.clamp(sourceDisp - targetDisp.detach(), min=0) * errSel) / torch.sum(errSel) * 0.1
-        lossWall = torch.mean(torch.clamp(sourceDisp - targetDisp.detach(), min=0)) * 0.1
+        errSel = ((sourceDisp / targetDisp > 1.15) * (sourceDisp > 1e-2)).float()
+        lossWall = torch.sum(torch.clamp(sourceDisp - targetDisp.detach(), min=0) * errSel) / torch.sum(errSel) * 0.1
+        # lossWall = torch.mean(torch.clamp(sourceDisp - targetDisp.detach(), min=0)) * 0.1
         if torch.isnan(lossWall):
             lossWall = 0
 
@@ -2520,7 +2525,7 @@ class DepthGuessesBySemantics(nn.Module):
             # tdevice = torch.device("cuda")
 
             maskGrad = torch.abs(self.seman_convx(foredgroundMask)) + torch.abs(self.seman_convy(foredgroundMask))
-            maskGrad = self.expand(maskGrad) * (dispAct > 7e-3).float()
+            maskGrad = self.expand_road(maskGrad) * (dispAct > 7e-3).float()
             maskGrad = torch.clamp(maskGrad, min=3) - 3
             maskGrad[:, :, self.zeroArea, :] = 0
             maskGrad[:, :, :, self.zeroArea] = 0
@@ -2791,12 +2796,23 @@ class DepthGuessesBySemantics(nn.Module):
 
             # Wall
 
+
+
+
+
+
             height = dispAct.shape[2]
             width = dispAct.shape[3]
+            maskGrad = torch.abs(self.seman_convx(foredgroundMask)) + torch.abs(self.seman_convy(foredgroundMask))
+            maskGrad = self.expand(maskGrad) * (dispAct > 1e-2).float()
+            maskGrad = torch.clamp(maskGrad, min=3) - 3
+            maskGrad[:, :, self.zeroArea, :] = 0
+            maskGrad[:, :, :, self.zeroArea] = 0
+            maskGrad = self.expand(maskGrad)
 
             centerx = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, width - self.wdSize)
             centery = torch.LongTensor(self.ptsNum * self.batchNum * 100).random_(self.wdSize, height - self.wdSize)
-            maskGrad = self.expand(maskGrad)
+            # maskGrad = self.expand(maskGrad)
 
             onBorderSelection = (maskGrad[self.channelInd_wall, 0, centery, centerx] > 1e-1) * (
                         wallTypeMask[self.channelInd_wall, 0, centery, centerx] == 1)
@@ -2820,7 +2836,7 @@ class DepthGuessesBySemantics(nn.Module):
             sampledy_pair = sampledy_pair[onBackSelection]
             sourceDisp = dispAct[channelInd, 0, centery, centerx]
             targetDisp = dispAct[channelInd, 0, sampledy_pair, sampledx_pair]
-            errSel = (sourceDisp / targetDisp > 1.15).float()
+            errSel = ((sourceDisp / targetDisp > 1.15) * (sourceDisp > 1e-2)).float()
             lossWall = torch.sum(torch.clamp(sourceDisp - targetDisp.detach(), min=0) * errSel) / torch.sum(errSel)
 
             viewSel = channelInd == viewInd
@@ -2844,7 +2860,9 @@ class DepthGuessesBySemantics(nn.Module):
             fig, ax = plt.subplots()
             plt.imshow(viewDisp)
             curChannelPosPts = (channelInd == viewInd)
+            curChannelPosPts = curChannelPosPts.float() * errSel
             curChannelPosPts[::2] = 0
+            curChannelPosPts = curChannelPosPts.byte()
             ptsSet1 = np.expand_dims(np.stack([centerx[curChannelPosPts], centery[curChannelPosPts]], axis=1), axis=1)
             ptsSet2 = np.expand_dims(np.stack([sampledx_pair[curChannelPosPts], sampledy_pair[curChannelPosPts]], axis=1), axis=1)
             ptsSet = np.concatenate([ptsSet1, ptsSet2], axis=1)
