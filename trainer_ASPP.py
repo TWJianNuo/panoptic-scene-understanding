@@ -329,6 +329,7 @@ class Trainer_ASPP:
             # print("Time util: | decoder:%f | mergeLayer:%f | prediction:%f | loss:%f | smoothLoss:%f | weighRatio:%f |" % (timeCount[0], timeCount[1], timeCount[2], timeCount[3], self.timeSpan_dispSmooth/self.timeSpan_loss, self.merge_multDisp.weights_time / self.timeSpan_mergeLayer))
             self.step += 1
 
+
     def process_batch(self, inputs):
         """Pass a minibatch through the network and generate images and losses
         """
@@ -412,7 +413,8 @@ class Trainer_ASPP:
         # visualize_semantic(pred[0, :, :]).show()
         return outputs, losses
     def is_use_sep_seman_train(self):
-        if self.opt.num_epochs - self.step <= 20:
+        if self.opt.num_epochs - self.epoch <= 20:
+            print("Not use")
             return False
         else:
             return True
