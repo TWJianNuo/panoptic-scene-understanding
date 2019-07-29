@@ -91,6 +91,12 @@ class MonodepthOptions:
                                  help="backbone used",
                                  choices=["unet", "ASPP"],
                                  default=["unet"])
+        self.parser.add_argument("--is_sep_train_seman",
+                                 help="whether to use different training image for semantic segmentation and deoth",
+                                 action="store_true"
+                                 )
+
+
         # OPTIMIZATION options
         self.parser.add_argument("--batch_size",
                                  type=int,

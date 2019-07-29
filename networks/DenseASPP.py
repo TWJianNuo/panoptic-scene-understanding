@@ -129,6 +129,7 @@ class DenseASPP(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
+
         # load
         densenet121 = torchvision.models.densenet121(pretrained=True)
         dsStateDict = densenet121.state_dict()
@@ -139,7 +140,13 @@ class DenseASPP(nn.Module):
                 renamedDsStateDict[newkey] = dsStateDict[key]
                 # print(newkey)
         self.features[:-2].load_state_dict(renamedDsStateDict)
+
+        self.ms = (torch.Tensor([125.3, 123.0, 113.9]) / 255).view(1,3,1,1).cuda()
+        # self.meanChange = self.meanChange.view(3,1,1).repeat(1,semanTrain_rgb.shape[1], semanTrain_rgb.shape[2])
+        self.vs = (torch.Tensor([63.0, 62.1, 66.7]) / 255).view(1,3,1,1).cuda()
+        # varChange = varChange.view(3,1,1).repeat(1,semanTrain_rgb.shape[1], semanTrain_rgb.shape[2])
     def forward(self, _input, computeSemantic = True, computeDepth = False):
+        _input = (_input - self.ms.expand_as(_input)) / self.vs.expand_as(_input)
         feature = self.features(_input)
 
         aspp3 = self.ASPP_3(feature)

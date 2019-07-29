@@ -364,10 +364,13 @@ class Compute_SemanticLoss(nn.Module):
         self.classtype = classtype # default is cityscape setting 19
     def reorder(self, input, clssDim):
         return input.permute(2,3,1,0).contiguous().view(-1, clssDim)
-    def forward(self, inputs, outputs):
+    def forward(self, inputs, outputs, use_sep_semant_train = False):
         # height = inputs['seman_gt'].shape[2]
         # width = inputs['seman_gt'].shape[3]
-        label = inputs['seman_gt']
+        if not use_sep_semant_train:
+            label = inputs['seman_gt']
+        else:
+            label = inputs['seperate_seman_gt']
         # Just for check
         # s = inputs['seman_gt'][0, 0, :, :].cpu().numpy()
         # visualize_semantic(s).show()
@@ -608,7 +611,7 @@ class SelfOccluMask(nn.Module):
         # output = output[:,:,pad:-pad, pad:-pad]
         mask_opp = torch.tanh(-output_opp * self.boostfac)
         # mask_opp = torch.clamp(mask_opp, min=0)
-        mask_opp = mask_opp.masked_fill(mask_opp < 0.9, 0)
+        mask_opp = mask_opp.masked_fill(mask_opp < 0.8, 0)
         mask_opp = torch.flip(mask_opp, dims=[3])
 
         # mask = (mask + mask_opp) / 2

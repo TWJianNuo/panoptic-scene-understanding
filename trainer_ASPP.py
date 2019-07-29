@@ -213,13 +213,13 @@ class Trainer_ASPP:
 
             train_dataset = initFunc(
                 datapath_set[i], train_filenames, self.opt.height, self.opt.width,
-                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=True, img_ext=img_ext, is_sep_train_seman = True)
+                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=True, img_ext=img_ext, is_sep_train_seman = self.opt.is_sep_train_seman)
             train_sample_num[i] = train_dataset.__len__()
             stacked_train_datasets.append(train_dataset)
 
             val_dataset = initFunc(
                 datapath_set[i], val_filenames, self.opt.height, self.opt.width,
-                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=False, img_ext=img_ext, is_sep_train_seman = True)
+                self.opt.frame_ids, 4, tag=dataset_set[i], is_train=False, img_ext=img_ext, is_sep_train_seman = self.opt.is_sep_train_seman)
             val_sample_num[i] = val_dataset.__len__()
             stacked_val_datasets.append(val_dataset)
 
@@ -253,9 +253,12 @@ class Trainer_ASPP:
     def set_eval(self):
         """Convert all models to testing/evaluation mode
         """
-        for m in self.models.values():
-            m.eval()
-            # m.train()
+        if not self.is_use_sep_seman_train():
+            for m in self.models.values():
+                m.eval()
+        else:
+            for m in self.models.values():
+                m.train()
 
     def train(self):
         """Run the entire training pipeline
@@ -347,9 +350,41 @@ class Trainer_ASPP:
         # end_decoder = torch.cuda.Event(enable_timing=True)
         # Switch between semantic and depth estimation
         # start_decoder.record()
+
+        # for i in range(self.opt.batch_size):
+            # semanlabbel = inputs['seman_gt'][i, 0, :, :].cpu().numpy().astype(np.uint8)
+            # visualize_semantic(semanlabbel).show()
+
+            # semanlabbel = inputs['seperate_seman_gt'][i, 0, :, :].cpu().numpy().astype(np.uint8)
+            # visualize_semantic(semanlabbel).show()
+
+            # img = pil.fromarray(
+            #     (inputs[("seperate_seman_rgb")].permute(0, 2, 3, 1)[i, :, :, :].cpu().numpy() * 255).astype(np.uint8))
+            # img.show()
+
+            # img = pil.fromarray(
+            #     (inputs[('color', 0, 0)].permute(0, 2, 3, 1)[i, :, :, :].cpu().numpy() * 255).astype(np.uint8))
+            # img.show()
+
+            # img = pil.fromarray(
+            #     (inputs[('color', 's', 0)].permute(0, 2, 3, 1)[i, :, :, :].cpu().numpy() * 255).astype(np.uint8))
+            # img.show()
+
+            # img = pil.fromarray(
+            #     (inputs[('color_aug', 0, 0)].permute(0, 2, 3, 1)[i, :, :, :].cpu().numpy() * 255).astype(np.uint8))
+            # img.show()
+
+            # img = pil.fromarray(
+            #     (inputs[('color_aug', 's', 0)].permute(0, 2, 3, 1)[i, :, :, :].cpu().numpy() * 255).astype(np.uint8))
+            # img.show()
+
+
         outputs = dict()
         if not self.opt.banSemantic:
-            outputs.update(self.models["depth"](inputs["color_aug", 0, 0], computeSemantic = True, computeDepth = False))
+            if not self.is_use_sep_seman_train():
+                outputs.update(self.models["depth"](inputs["color_aug", 0, 0], computeSemantic = True, computeDepth = False))
+            else:
+                outputs.update(self.models["depth"](inputs['seperate_seman_rgb'], computeSemantic=True, computeDepth=False))
         if not self.opt.banDepth:
             outputs.update(self.models["depth"](inputs["color_aug", 0, 0], computeSemantic = False, computeDepth = True))
 
@@ -376,6 +411,12 @@ class Trainer_ASPP:
         # visualize_semantic(gt[0, :, :]).show()
         # visualize_semantic(pred[0, :, :]).show()
         return outputs, losses
+    def is_use_sep_seman_train(self):
+        if self.opt.num_epochs - self.step <= 20:
+            return False
+        else:
+            return True
+
     def is_regress_dispLoss(self, inputs, outputs):
         # if there are stereo images, we compute depth
         if ('color', 0, 0) in inputs and ('color', 's', 0) in inputs and ('disp', 0) in outputs:
@@ -391,7 +432,7 @@ class Trainer_ASPP:
     def val(self):
         """Validate the model on a single minibatch
         """
-        # self.set_eval()
+        self.set_eval()
         try:
             inputs = self.val_iter.next()
         except StopIteration:
@@ -762,7 +803,7 @@ class Trainer_ASPP:
             loss = loss / self.num_scales
             losses["loss_depth"] = ssimLossMean / self.num_scales
         if self.is_regress_semanticLoss(inputs, outputs):
-            loss_seman, loss_semantoshow = self.semanticLoss(inputs, outputs) # semantic loss is scaled already
+            loss_seman, loss_semantoshow = self.semanticLoss(inputs, outputs, use_sep_semant_train = self.is_use_sep_seman_train()) # semantic loss is scaled already
             for entry in loss_semantoshow:
                 losses[entry] = loss_semantoshow[entry]
             loss = loss + self.semanticCoeff * loss_seman
@@ -779,7 +820,10 @@ class Trainer_ASPP:
         This isn't particularly accurate as it averages over the entire batch,
         so is only used to give an indication of validation performance
         """
-        gt = inputs['seman_gt_eval'].cpu().numpy().astype(np.uint8)
+        if not self.is_use_sep_seman_train():
+            gt = inputs['seman_gt_eval'].cpu().numpy().astype(np.uint8)
+        else:
+            gt = inputs['seperate_seman_gt'][:,0,:,:].cpu().numpy().astype(np.uint8)
         pred = self.sfx(outputs[('seman', 0)]).detach()
         pred = torch.argmax(pred, dim=1).type(torch.float).unsqueeze(1)
         pred = F.interpolate(pred, [gt.shape[1], gt.shape[2]], mode='nearest')
