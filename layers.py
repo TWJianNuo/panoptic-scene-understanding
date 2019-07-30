@@ -661,7 +661,7 @@ class SelfOccluMask(nn.Module):
 
         viewmask = mask[viewind, 0, :, :].detach().cpu().numpy()
         viewmask = (cm(viewmask)* 255).astype(np.uint8)
-        pil.fromarray(viewmask).show()
+        # pil.fromarray(viewmask).show()
 
         viewmask_opp = mask_opp[viewind, 0, :, :].detach().cpu().numpy()
         viewmask_opp = (cm(viewmask_opp)* 255).astype(np.uint8)
@@ -671,13 +671,13 @@ class SelfOccluMask(nn.Module):
         viewdisp = dispmap[viewind, 0, :, :].detach().cpu().numpy()
         vmax = np.percentile(viewdisp, 90)
         viewdisp = (cm(viewdisp / vmax)* 255).astype(np.uint8)
-        pil.fromarray(viewdisp).show()
+        # pil.fromarray(viewdisp).show()
 
         dispmap_sup = dispmap * (1 - mask.float())
         view_dispmap_sup = dispmap_sup[viewind, 0, :, :].detach().cpu().numpy()
         vmax = np.percentile(view_dispmap_sup, 90)
         view_dispmap_sup = (cm(view_dispmap_sup / vmax) * 255).astype(np.uint8)
-        pil.fromarray(view_dispmap_sup).show()
+        # pil.fromarray(view_dispmap_sup).show()
 
         # viewdisp_opp = dispmap_opp[viewind, 0, :, :].detach().cpu().numpy()
         # vmax = np.percentile(viewdisp_opp, 90)

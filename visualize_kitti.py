@@ -77,6 +77,40 @@ class ComputeErrOnBorder(nn.Module):
         self.offborderErr = 0
         self.onborderNum = 0
         self.offborderNum = 0
+
+        self.semanType = 20
+        self.errRecType = 10
+        self.errType = 9
+        self.errCount = np.zeros([self.errRecType, self.semanType, 2])
+        self.entryName = [
+            'a1',
+            'a2',
+            'a3',
+            'rmse',
+            'rmse_log',
+            'abs_rel',
+            'sq_rel',
+            'abs_shift',
+            'silog'
+        ]
+        self.semanName = list()
+        for i in range(self.semanType):
+            if i == self.semanType -1:
+                id =255
+            else:
+                id = i
+            self.semanName.append(trainId2label[id].name)
+        self.semanName[6] = 'light'
+        self.semanName[7] = 'sign'
+        # self.a1_seman = np.zeros(self.semanType, 2)
+        # self.a2_seman = np.zeros(self.semanType, 2)
+        # self.a3_seman = np.zeros(self.semanType, 2)
+        # self.rmse_seman = np.zeros(self.semanType, 2)
+        # self.rmse_log_seman = np.zeros(self.semanType, 2)
+        # self.abs_rel_seman = np.zeros(self.semanType, 2)
+        # self.sq_rel_seman = np.zeros(self.semanType, 2)
+        # self.abs_shift_seman = np.zeros(self.semanType, 2)
+
     def forward(self, semanLabel, errMap, errMask):
         semanLabel = semanLabel.float()
         maskGrad = torch.abs(self.seman_convx(semanLabel)) + torch.abs(self.seman_convy(semanLabel))
@@ -95,6 +129,126 @@ class ComputeErrOnBorder(nn.Module):
         self.offborderErr = self.offborderErr + np.sum(errMap) - np.sum(errMap * maskGrad)
         self.onborderNum = self.onborderNum + np.sum((maskGrad * errMask) > 0)
         self.offborderNum = self.offborderNum + np.sum((errMask) > 0)
+
+    def do_err_statistics(self, semanLabel, prediction, groundTruth):
+        width = groundTruth.shape[3]
+        height = groundTruth.shape[2]
+        prediction = F.interpolate(prediction, [height, width], mode='bilinear', align_corners=False)
+        mask = groundTruth > 0
+
+        pred = prediction[mask]
+        gt = groundTruth[mask]
+        seman = semanLabel[mask]
+
+        pred = pred.detach().cpu().numpy()
+        gt = gt.detach().cpu().numpy()
+        seman = seman.detach().cpu().numpy()
+
+
+        thresh = np.maximum((gt / pred), (pred / gt))
+        a1 = (thresh < 1.25)
+        a2 = (thresh < 1.25 ** 2)
+        a3 = (thresh < 1.25 ** 3)
+
+        rmse = (gt - pred) ** 2
+        rmse = rmse
+
+        rmse_log = (np.log(gt) - np.log(pred)) ** 2
+        rmse_log = rmse_log
+
+        abs_rel = np.abs(gt - pred) / gt
+
+        sq_rel = ((gt - pred) ** 2) / gt
+
+        abs_shift = np.abs(gt - pred)
+
+        difflog = np.log(pred) - np.log(gt)
+        siLog_entry1 = difflog * difflog
+        siLog_entry2 = difflog
+
+        errList = list()
+        errList.append(a1)
+        errList.append(a2)
+        errList.append(a3)
+        errList.append(rmse)
+        errList.append(rmse_log)
+        errList.append(abs_rel)
+        errList.append(sq_rel)
+        errList.append(abs_shift)
+        errList.append(siLog_entry1)
+        errList.append(siLog_entry2)
+
+        for i in range(self.semanType):
+            if i == self.semanType - 1:
+                curInd = 255
+            else:
+                curInd = i
+            selector = seman == curInd
+            for j in range(self.errType):
+                self.errCount[j, i, 0] += np.sum(errList[j][selector])
+                self.errCount[j, i, 1] += np.sum(selector)
+            # self.a1_seman[i, 0] += np.sum(a1[selector])
+            # self.a1_seman[i, 1]
+            # self.a2_seman = np.zeros(self.semanType, 2)
+            # self.a3_seman = np.zeros(self.semanType, 2)
+            # self.rmse_seman = np.zeros(self.semanType, 2)
+            # self.rmse_log_seman = np.zeros(self.semanType, 2)
+            # self.abs_rel_seman = np.zeros(self.semanType, 2)
+            # self.sq_rel_seman = np.zeros(self.semanType, 2)
+            # self.abs_shift_seman = np.zeros(self.semanType, 2)
+    def getMetric_semanwise(self):
+        self.computed_metric = np.zeros([self.errType, self.semanType])
+        for i in range(self.errType):
+            if i == 0:
+                self.computed_metric[i, :] = self.errCount[i, :, 0] / (self.errCount[i, :, 1] + 1e-10)
+            if i == 1:
+                self.computed_metric[i, :] = self.errCount[i, :, 0] / (self.errCount[i, :, 1] + 1e-10)
+            if i == 2:
+                self.computed_metric[i, :] = self.errCount[i, :, 0] / (self.errCount[i, :, 1] + 1e-10)
+            if i == 3:
+                self.computed_metric[i, :] = np.sqrt(self.errCount[i, :, 0] / (self.errCount[i, :, 1] + 1e-10))
+            if i == 4:
+                self.computed_metric[i, :] = np.sqrt(self.errCount[i, :, 0] / (self.errCount[i, :, 1] + 1e-10))
+            if i == 5:
+                self.computed_metric[i, :] = self.errCount[i, :, 0] / (self.errCount[i, :, 1] + 1e-10)
+            if i== 6:
+                self.computed_metric[i, :] = self.errCount[i, :, 0] / (self.errCount[i, :, 1] + 1e-10)
+            if i == 7:
+                self.computed_metric[i, :] = self.errCount[i, :, 0] / (self.errCount[i, :, 1] + 1e-10)
+            if i == 8:
+                self.computed_metric[i, :] = self.errCount[i, :, 0] / (self.errCount[i, :, 1] + 1e-10) + (self.errCount[i+1, :, 0] *  self.errCount[i+1, :, 0]) / (self.errCount[i+1, :, 1] * self.errCount[i+1, :, 1] + 1e-10)
+
+        for i in range(self.errType):
+            fig = plt.figure(figsize = [512, 512])
+            plt.bar(np.arange(self.semanType), self.computed_metric[i, :])
+            plt.xticks(np.arange(self.semanType), self.semanName)
+            plt.ylabel(self.entryName[i])
+            plt.savefig(str(i) + ".png", dpi = 200)
+            plt.close()
+
+        self.totLoss = np.zeros(self.errType)
+        for i in range(self.errType):
+            if i == 0:
+                self.totLoss[i] = np.sum(self.errCount[i, :, 0]) / np.sum(self.errCount[i, :, 1] + 1e-10)
+            if i == 1:
+                self.totLoss[i] = np.sum(self.errCount[i, :, 0]) / np.sum(self.errCount[i, :, 1] + 1e-10)
+            if i == 2:
+                self.totLoss[i] = np.sum(self.errCount[i, :, 0]) / np.sum(self.errCount[i, :, 1] + 1e-10)
+            if i == 3:
+                self.totLoss[i] = np.sqrt(np.sum(self.errCount[i, :, 0]) / np.sum(self.errCount[i, :, 1] + 1e-10))
+            if i == 4:
+                self.totLoss[i] = np.sqrt(np.sum(self.errCount[i, :, 0]) / np.sum(self.errCount[i, :, 1] + 1e-10))
+            if i == 5:
+                self.totLoss[i] = np.sum(self.errCount[i, :, 0]) / np.sum(self.errCount[i, :, 1] + 1e-10)
+            if i== 6:
+                self.totLoss[i] = np.sum(self.errCount[i, :, 0]) / np.sum(self.errCount[i, :, 1] + 1e-10)
+            if i == 7:
+                self.totLoss[i] = np.sum(self.errCount[i, :, 0]) / np.sum(self.errCount[i, :, 1] + 1e-10)
+            if i == 8:
+                self.totLoss[i] = np.sum(self.errCount[i, :, 0]) / (np.sum(self.errCount[i, :, 1]) + 1e-10) + np.sum(self.errCount[i+1, :, 0]) ** 2 / (np.sum(self.errCount[i+1, :, 1]) ** 2 + 1e-10)
+
+        for i in range(self.errType):
+            print("%s: %f" % (self.entryName[i], self.totLoss[i]))
 
     def getMetric(self):
         print("aveErrOnBorder %f" % (self.onborderErr / self.onborderNum))
@@ -403,11 +557,12 @@ def evaluate(opt):
     viewSemanReg = False
     viewErr = True
     isComputeErrBorder = False
+    isDoErrStatistics = True
     height = 288
     width = 960
     tensor23dPts = Tensor23dPts(height=height, width=width)
 
-    if isComputeErrBorder:
+    if isComputeErrBorder or isDoErrStatistics:
         compErrBorder = ComputeErrOnBorder()
         compErrBorder.cuda()
 
@@ -496,6 +651,9 @@ def evaluate(opt):
                     errFig, errMap, errMask = viewerr.viewErr(est=depthMap, gt=inputs["depth_gt"], viewInd=index)
                     if isComputeErrBorder:
                         compErrBorder(inputs['seman_gt_eval'].unsqueeze(0), errMap, errMask)
+
+                if isDoErrStatistics:
+                    compErrBorder.do_err_statistics(inputs['seman_gt_eval'].unsqueeze(0), depthMap, inputs["depth_gt"])
 
                 if viewDispUp:
                     fig_dispup = compDispUp.visualize(scaled_disp, viewindex=index)
@@ -764,6 +922,8 @@ def evaluate(opt):
                 print("%dth saved" % idx)
     if isComputeErrBorder:
         compErrBorder.getMetric()
+    if isDoErrStatistics:
+        compErrBorder.getMetric_semanwise()
     # If compute the histogram
 
     if isHist:

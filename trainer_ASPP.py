@@ -413,8 +413,8 @@ class Trainer_ASPP:
         # visualize_semantic(pred[0, :, :]).show()
         return outputs, losses
     def is_use_sep_seman_train(self):
-        if self.opt.num_epochs - self.epoch <= 20:
-            print("Not use")
+        if self.opt.num_epochs - self.epoch <= 20 or not self.opt.is_sep_train_seman:
+            # print("Not use")
             return False
         else:
             return True
