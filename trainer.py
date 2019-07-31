@@ -543,7 +543,6 @@ class Trainer:
                 # sourceSSIMMask = self.selfOccluMask(outputs[('disp', source_scale)], inputs['stereo_T'][:,0,3])
                 # self.selfOccluMask.visualize(outputs[('real_scale_disp', source_scale)])
                 sourceSSIMMask = self.selfOccluMask(outputs[('real_scale_disp', source_scale)], inputs['stereo_T'][:, 0, 3])
-                outputs['ssimMask'] = sourceSSIMMask
                 # sourceSSIMMask = expand(sourceSSIMMask)
                 # Check
                 # viewind = 0
@@ -553,6 +552,25 @@ class Trainer:
                 # viewSSIMMask = (cm(viewSSIMMask / vmax) * 255).astype(np.uint8)
                 # pil.fromarray(viewSSIMMask).show()
                 # viewSSIMMask, viewSSIMMask_opp = self.selfOccluMask.visualize(outputs[('disp', source_scale)], viewind=0)
+
+                if 'seman_gt' in inputs:
+                    wallTypeMask = torch.ones(outputs[('disp', source_scale)].shape, device=self.tDevice).byte()
+                    roadTypeMask = torch.ones(outputs[('disp', source_scale)].shape, device=self.tDevice).byte()
+                    foreGroundMask = torch.ones(outputs[('disp', source_scale)].shape, device=self.tDevice).byte()
+                    with torch.no_grad():
+                        for m in self.wallType:
+                            wallTypeMask = wallTypeMask * (inputs['seman_gt'] != m)
+                        wallTypeMask = (1 - wallTypeMask).float()
+
+                        for m in self.roadType:
+                            roadTypeMask = roadTypeMask * (inputs['seman_gt'] != m)
+                        roadTypeMask = (1 - roadTypeMask).float()
+
+                        for m in self.foregroundType:
+                            foreGroundMask = foreGroundMask * (inputs['seman_gt'] != m)
+                        foreGroundMask = (1 - foreGroundMask).float()
+                        sourceSSIMMask = self.selfOccluMask.betterSelfOccluMask(sourceSSIMMask, foreGroundMask, bsline=inputs['stereo_T'][:, 0, 3], dispPred=outputs['disp', source_scale])
+                outputs['ssimMask'] = sourceSSIMMask
 
             for scale in self.opt.scales:
                 reprojection_losses = []
@@ -576,6 +594,7 @@ class Trainer:
                     #     cm = plt.get_cmap('magma')
                     #     viewInd = 0
                     #     visualizePhotometricLoss = self.ssim(pred, target)
+                    #     visualizePhotometricLoss = torch.mean(visualizePhotometricLoss, dim=1, keepdim=True)
                     #     visualizePhotometricLoss = visualizePhotometricLoss[viewInd, 0, :, :].detach().cpu().numpy()
                     #     vmax = np.percentile(visualizePhotometricLoss, 99.9)
                     #     visualizePhotometricLoss = (cm(visualizePhotometricLoss / vmax) * 255).astype(np.uint8)
@@ -584,9 +603,11 @@ class Trainer:
                     #     cm = plt.get_cmap('magma')
                     #     viewInd = 0
                     #     visualizePhotometricLoss = abs_diff
+                    #     visualizePhotometricLoss = torch.mean(visualizePhotometricLoss, dim=1, keepdim=True)
                     #     visualizePhotometricLoss = visualizePhotometricLoss[viewInd, 0, :, :].detach().cpu().numpy()
                     #     vmax = np.percentile(visualizePhotometricLoss, 99.9)
                     #     visualizePhotometricLoss = (cm(visualizePhotometricLoss / vmax) * 255).astype(np.uint8)
+                    #     pil.fromarray(visualizePhotometricLoss).show()
                     #
                     #     predView = pred[viewInd, :, :, :].permute(1, 2, 0).detach().cpu().numpy()
                     #     predView = (predView * 255).astype(np.uint8)
@@ -606,6 +627,27 @@ class Trainer:
                     #
                     #     show = np.concatenate([predView, targetView, target_disp_overlay, sourceView], axis= 0 )
                     #     pil.fromarray(show).show()
+                    #
+                    #     gaussKernel = get_gaussian_kernel_weights(kernel_size=3, sigma=2)
+                    #     gaussConv = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+                    #     gaussConv.weight = nn.Parameter(gaussKernel, requires_grad=False)
+                    #     gaussConv = gaussConv.cuda()
+                    #
+                    #     visualizePhotometricLoss = self.ssim(pred, target)
+                    #     visualizePhotometricLoss = torch.mean(visualizePhotometricLoss, dim=1, keepdim=True)
+                    #     visualizePhotometricLoss = gaussConv(visualizePhotometricLoss)
+                    #     visualizePhotometricLoss = visualizePhotometricLoss[viewInd, 0, :, :].detach().cpu().numpy()
+                    #     vmax = np.percentile(visualizePhotometricLoss, 99.9)
+                    #     visualizePhotometricLoss = (cm(visualizePhotometricLoss / vmax) * 255).astype(np.uint8)
+                    #     pil.fromarray(visualizePhotometricLoss).show()
+                    #
+                    #     visualizePhotometricLoss = torch.mean(abs_diff, dim=1, keepdim=True)
+                    #     visualizePhotometricLoss = gaussConv(visualizePhotometricLoss)
+                    #     visualizePhotometricLoss = visualizePhotometricLoss[viewInd, 0, :, :].detach().cpu().numpy()
+                    #     vmax = np.percentile(visualizePhotometricLoss, 99.9)
+                    #     visualizePhotometricLoss = (cm(visualizePhotometricLoss / vmax) * 255).astype(np.uint8)
+                    #     pil.fromarray(visualizePhotometricLoss).show()
+                    #
                     #
                     #     if self.opt.selfocclu:
                     #             cm = plt.get_cmap('magma')
@@ -707,6 +749,15 @@ class Trainer:
 
                 if self.opt.selfocclu:
                     to_optimise = (1 - sourceSSIMMask.squeeze(1)) * to_optimise
+                    # to_optimise = (1 - (inputs['seman_gt'] == 8)).float() * to_optimise
+                    # viewMask = (1 - (inputs['seman_gt'] == 8)).float()
+                    # cm = plt.get_cmap('magma')
+                    # viewInd = 0
+                    # viewMask = viewMask[viewInd, 0, :, :].detach().cpu().numpy()
+                    # vmax = 1
+                    # viewMask = (cm(viewMask / vmax) * 255).astype(np.uint8)
+                    # pil.fromarray(viewMask).show()
+
                     # a, b = self.selfOccluMask.visualize(outputs[('disp', scale)])
                     # scaleSSIMMask = self.selfOccluMask(outputs[('disp', scale)])
                     # dispupMap = self.dispupLoss(outputs[('disp', scale)])
@@ -832,24 +883,14 @@ class Trainer:
 
                 if self.opt.borderSemanReg:
                     if 'seman_gt' in inputs:
-                        wallTypeMask = torch.ones(outputs[('disp', scale)].shape, device=self.tDevice).byte()
-                        roadTypeMask = torch.ones(outputs[('disp', scale)].shape, device=self.tDevice).byte()
-                        foreGroundMask = torch.ones(outputs[('disp', scale)].shape, device=self.tDevice).byte()
-
-                        with torch.no_grad():
-                            for m in self.wallType:
-                                wallTypeMask = wallTypeMask * (inputs['seman_gt'] != m)
-                            wallTypeMask = (1 - wallTypeMask).float()
-
-                            for m in self.roadType:
-                                roadTypeMask = roadTypeMask * (inputs['seman_gt'] != m)
-                            roadTypeMask = (1 - roadTypeMask).float()
-
-                            for m in self.foregroundType:
-                                foreGroundMask = foreGroundMask * (inputs['seman_gt'] != m)
-                            foreGroundMask = (1 - foreGroundMask).float()
-                        # if scale == 2:
-                        #     self.borderSemanReg.visualizeDepthGuess(realDepth=outputs[('depth', 0, scale)] * self.STEREO_SCALE_FACTOR, dispAct=outputs[('disp', scale)], foredgroundMask = foreGroundMask, wallTypeMask=wallTypeMask, groundTypeMask=roadTypeMask, intrinsic= inputs['realIn'], extrinsic=inputs['realEx'], semantic = inputs['seman_gt_eval'], cts_meta = inputs['cts_meta'], viewInd=0)
+                        # if scale == 0:
+                            # self.borderSemanReg.visualizeDepthGuess(realDepth=outputs[('depth', 0, scale)] * self.STEREO_SCALE_FACTOR, dispAct=outputs[('disp', scale)], foredgroundMask = foreGroundMask, wallTypeMask=wallTypeMask, groundTypeMask=roadTypeMask, intrinsic= inputs['realIn'], extrinsic=inputs['realEx'], semantic = inputs['seman_gt_eval'], cts_meta = inputs['cts_meta'], viewInd=0)
+                            # self.borderSemanReg[inputs['tag'][0]].visualizeDepthGuess(
+                            #     realDepth=outputs[('depth', 0, scale)] * self.STEREO_SCALE_FACTOR,
+                            #     dispAct=outputs[('disp', scale)], foredgroundMask=foreGroundMask,
+                            #     wallTypeMask=wallTypeMask, groundTypeMask=roadTypeMask, intrinsic=inputs['realIn'],
+                            #     extrinsic=inputs['realEx'], semantic=inputs['seman_gt_eval'],
+                            #     cts_meta=None, viewInd=0)
                         lossRoad, lossWall = self.borderSemanReg[inputs['tag'][0]].regBySeman(realDepth=outputs[('depth', 0, scale)] * self.STEREO_SCALE_FACTOR, dispAct=outputs[('disp', scale)], foredgroundMask = foreGroundMask, wallTypeMask=wallTypeMask, groundTypeMask=roadTypeMask, intrinsic= inputs['realIn'], extrinsic=inputs['realEx'])
                         # loss = loss + (lossRoad * 0 + lossWall * 1) * self.opt.borderSemanRegScale
                         loss = loss + (lossRoad * 0.5 * 0.5 * self.opt.borderSemanRegScale_Road + lossWall * 0.5 * self.opt.borderSemanRegScale_Wall)
