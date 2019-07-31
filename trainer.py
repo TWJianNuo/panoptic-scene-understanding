@@ -553,7 +553,7 @@ class Trainer:
                 # pil.fromarray(viewSSIMMask).show()
                 # viewSSIMMask, viewSSIMMask_opp = self.selfOccluMask.visualize(outputs[('disp', source_scale)], viewind=0)
 
-                if 'seman_gt' in inputs:
+                if 'seman_gt' in inputs and self.opt.borderSemanReg:
                     wallTypeMask = torch.ones(outputs[('disp', source_scale)].shape, device=self.tDevice).byte()
                     roadTypeMask = torch.ones(outputs[('disp', source_scale)].shape, device=self.tDevice).byte()
                     foreGroundMask = torch.ones(outputs[('disp', source_scale)].shape, device=self.tDevice).byte()
