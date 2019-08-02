@@ -638,7 +638,7 @@ def evaluate(opt):
     viewRandomSample = False
     viewSemanReg = False
     viewErr = True
-    isComputeErrBorder = False
+    isComputeErrBorder = True
     isDoErrStatistics = True
     height = 288
     width = 960
