@@ -91,7 +91,8 @@ class SingleDataset(data.Dataset):
                                                interpolation=self.interp)
 
         self.load_depth = self.check_depth()
-        self.load_seman = self.check_seman()
+        self.load_seman = True
+        # self.load_seman = self.check_seman()
 
     def preprocess(self, inputs, color_aug):
         """Resize colour images to the required scales and augment if required
@@ -339,8 +340,8 @@ class SingleDataset(data.Dataset):
     def get_seman(self, folder, do_flip, frame_index):
         raise NotImplementedError
 
-    def check_seman(self):
-        raise NotImplementedError
+    # def check_seman(self):
+    #     raise NotImplementedError
 
     def check_cityscape_meta(self):
         raise NotImplementedError
