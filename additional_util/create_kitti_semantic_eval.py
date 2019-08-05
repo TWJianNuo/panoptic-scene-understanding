@@ -50,7 +50,10 @@ def generateKittiToyExaple(mappingFileLoc, splitFileLoc):
     for i in range(repeatTime):
         line = mapping[2]
         lineComp = line.split(' ')
-        writel = lineComp[0] + '/' + lineComp[1] + ' ' + str(int(lineComp[2])) + ' ' + 'l\n'
+        if random.random() > 0.5:
+            writel = lineComp[0] + '/' + lineComp[1] + ' ' + str(int(lineComp[2])) + ' ' + 'l\n'
+        else:
+            writel = lineComp[0] + '/' + lineComp[1] + ' ' + str(int(lineComp[2])) + ' ' + 'r\n'
         fileTrain.writelines(writel)
     fileTrain.close()
 

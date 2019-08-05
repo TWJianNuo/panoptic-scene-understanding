@@ -57,14 +57,14 @@ class ComputeErrOnBorder(nn.Module):
     def __init__(self):
         super(ComputeErrOnBorder, self).__init__()
         weightsx = torch.Tensor([
-                                [-1., 0., 1.],
-                                [-2., 0., 2.],
-                                [-1., 0., 1.]]).unsqueeze(0).unsqueeze(0)
+            [-1., 0., 1.],
+            [-2., 0., 2.],
+            [-1., 0., 1.]]).unsqueeze(0).unsqueeze(0)
 
         weightsy = torch.Tensor([
-                                [1., 2., 1.],
-                                [0., 0., 0.],
-                                [-1., -2., -1.]]).unsqueeze(0).unsqueeze(0)
+            [1., 2., 1.],
+            [0., 0., 0.],
+            [-1., -2., -1.]]).unsqueeze(0).unsqueeze(0)
 
         self.seman_convx = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
         self.seman_convy = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
@@ -77,6 +77,43 @@ class ComputeErrOnBorder(nn.Module):
         self.offborderErr = 0
         self.onborderNum = 0
         self.offborderNum = 0
+
+        self.semanType = 20
+        self.errRecType = 10
+        self.errType = 9
+        self.errCount = np.zeros([self.errRecType, self.semanType, 2])
+        self.distanceBins = np.arange(1, 9) * 10
+        # self.distanceBins = np.concatenate([self.distanceBins, np.array([1e10])], axis=0)
+        self.errDistCount = np.zeros([self.errRecType, self.distanceBins.shape[0] + 1, 2])
+        self.entryName = [
+            'a1',
+            'a2',
+            'a3',
+            'rmse',
+            'rmse_log',
+            'abs_rel',
+            'sq_rel',
+            'abs_shift',
+            'silog'
+        ]
+        self.semanName = list()
+        for i in range(self.semanType):
+            if i == self.semanType -1:
+                id =255
+            else:
+                id = i
+            self.semanName.append(trainId2label[id].name)
+        self.semanName[6] = 'light'
+        self.semanName[7] = 'sign'
+        # self.a1_seman = np.zeros(self.semanType, 2)
+        # self.a2_seman = np.zeros(self.semanType, 2)
+        # self.a3_seman = np.zeros(self.semanType, 2)
+        # self.rmse_seman = np.zeros(self.semanType, 2)
+        # self.rmse_log_seman = np.zeros(self.semanType, 2)
+        # self.abs_rel_seman = np.zeros(self.semanType, 2)
+        # self.sq_rel_seman = np.zeros(self.semanType, 2)
+        # self.abs_shift_seman = np.zeros(self.semanType, 2)
+
     def forward(self, semanLabel, errMap, errMask):
         semanLabel = semanLabel.float()
         maskGrad = torch.abs(self.seman_convx(semanLabel)) + torch.abs(self.seman_convy(semanLabel))
@@ -95,6 +132,205 @@ class ComputeErrOnBorder(nn.Module):
         self.offborderErr = self.offborderErr + np.sum(errMap) - np.sum(errMap * maskGrad)
         self.onborderNum = self.onborderNum + np.sum((maskGrad * errMask) > 0)
         self.offborderNum = self.offborderNum + np.sum((errMask) > 0)
+
+    def do_err_statistics(self, semanLabel, prediction, groundTruth):
+        width = groundTruth.shape[3]
+        height = groundTruth.shape[2]
+        prediction = F.interpolate(prediction, [height, width], mode='bilinear', align_corners=False)
+        mask = groundTruth > 0
+
+        pred = prediction[mask]
+        gt = groundTruth[mask]
+        seman = semanLabel[mask]
+
+        pred = pred.detach().cpu().numpy()
+        gt = gt.detach().cpu().numpy()
+        seman = seman.detach().cpu().numpy()
+
+
+        thresh = np.maximum((gt / pred), (pred / gt))
+        a1 = (thresh < 1.25)
+        a2 = (thresh < 1.25 ** 2)
+        a3 = (thresh < 1.25 ** 3)
+
+        rmse = (gt - pred) ** 2
+        rmse = rmse
+
+        rmse_log = (np.log(gt) - np.log(pred)) ** 2
+        rmse_log = rmse_log
+
+        abs_rel = np.abs(gt - pred) / gt
+
+        sq_rel = ((gt - pred) ** 2) / gt
+
+        abs_shift = np.abs(gt - pred)
+
+        difflog = np.log(pred) - np.log(gt)
+        siLog_entry1 = difflog * difflog
+        siLog_entry2 = difflog
+
+        errList = list()
+        errList.append(a1)
+        errList.append(a2)
+        errList.append(a3)
+        errList.append(rmse)
+        errList.append(rmse_log)
+        errList.append(abs_rel)
+        errList.append(sq_rel)
+        errList.append(abs_shift)
+        errList.append(siLog_entry1)
+        errList.append(siLog_entry2)
+
+        for i in range(self.semanType):
+            if i == self.semanType - 1:
+                curInd = 255
+            else:
+                curInd = i
+            selector = seman == curInd
+            for j in range(self.errType):
+                self.errCount[j, i, 0] += np.sum(errList[j][selector])
+                self.errCount[j, i, 1] += np.sum(selector)
+
+        inds = np.digitize(gt, self.distanceBins)
+        for i in range(self.distanceBins.shape[0] + 1):
+            selector = inds == i
+            for j in range(self.errType):
+                self.errDistCount[j, i, 0] += np.sum(errList[j][selector])
+                self.errDistCount[j, i, 1] += np.sum(selector)
+            # self.a1_seman[i, 0] += np.sum(a1[selector])
+            # self.a1_seman[i, 1]
+            # self.a2_seman = np.zeros(self.semanType, 2)
+            # self.a3_seman = np.zeros(self.semanType, 2)
+            # self.rmse_seman = np.zeros(self.semanType, 2)
+            # self.rmse_log_seman = np.zeros(self.semanType, 2)
+            # self.abs_rel_seman = np.zeros(self.semanType, 2)
+            # self.sq_rel_seman = np.zeros(self.semanType, 2)
+            # self.abs_shift_seman = np.zeros(self.semanType, 2)
+    def getMetric_semanwise(self):
+        self.computed_metric = np.zeros([self.errType, self.semanType])
+        for i in range(self.errType):
+            if i == 0:
+                self.computed_metric[i, :] = self.errCount[i, :, 0] / (self.errCount[i, :, 1] + 1e-10)
+            if i == 1:
+                self.computed_metric[i, :] = self.errCount[i, :, 0] / (self.errCount[i, :, 1] + 1e-10)
+            if i == 2:
+                self.computed_metric[i, :] = self.errCount[i, :, 0] / (self.errCount[i, :, 1] + 1e-10)
+            if i == 3:
+                self.computed_metric[i, :] = np.sqrt(self.errCount[i, :, 0] / (self.errCount[i, :, 1] + 1e-10))
+            if i == 4:
+                self.computed_metric[i, :] = np.sqrt(self.errCount[i, :, 0] / (self.errCount[i, :, 1] + 1e-10))
+            if i == 5:
+                self.computed_metric[i, :] = self.errCount[i, :, 0] / (self.errCount[i, :, 1] + 1e-10)
+            if i== 6:
+                self.computed_metric[i, :] = self.errCount[i, :, 0] / (self.errCount[i, :, 1] + 1e-10)
+            if i == 7:
+                self.computed_metric[i, :] = self.errCount[i, :, 0] / (self.errCount[i, :, 1] + 1e-10)
+            if i == 8:
+                self.computed_metric[i, :] = self.errCount[i, :, 0] / (self.errCount[i, :, 1] + 1e-10) + (self.errCount[i+1, :, 0] *  self.errCount[i+1, :, 0]) / (self.errCount[i+1, :, 1] * self.errCount[i+1, :, 1] + 1e-10)
+
+        self.computed_metric_dist = np.zeros([self.errType, self.distanceBins.shape[0] + 1])
+        for i in range(self.errType):
+            if i == 0:
+                self.computed_metric_dist[i, :] = self.errDistCount[i, :, 0] / (self.errDistCount[i, :, 1] + 1e-10)
+            if i == 1:
+                self.computed_metric_dist[i, :] = self.errDistCount[i, :, 0] / (self.errDistCount[i, :, 1] + 1e-10)
+            if i == 2:
+                self.computed_metric_dist[i, :] = self.errDistCount[i, :, 0] / (self.errDistCount[i, :, 1] + 1e-10)
+            if i == 3:
+                self.computed_metric_dist[i, :] = np.sqrt(self.errDistCount[i, :, 0] / (self.errDistCount[i, :, 1] + 1e-10))
+            if i == 4:
+                self.computed_metric_dist[i, :] = np.sqrt(self.errDistCount[i, :, 0] / (self.errDistCount[i, :, 1] + 1e-10))
+            if i == 5:
+                self.computed_metric_dist[i, :] = self.errDistCount[i, :, 0] / (self.errDistCount[i, :, 1] + 1e-10)
+            if i== 6:
+                self.computed_metric_dist[i, :] = self.errDistCount[i, :, 0] / (self.errDistCount[i, :, 1] + 1e-10)
+            if i == 7:
+                self.computed_metric_dist[i, :] = self.errDistCount[i, :, 0] / (self.errDistCount[i, :, 1] + 1e-10)
+            if i == 8:
+                self.computed_metric_dist[i, :] = self.errDistCount[i, :, 0] / (self.errDistCount[i, :, 1] + 1e-10) + (self.errDistCount[i+1, :, 0] *  self.errDistCount[i+1, :, 0]) / (self.errDistCount[i+1, :, 1] * self.errDistCount[i+1, :, 1] + 1e-10)
+
+        self.distEntry = [
+            '< 10',
+            '10 ~ 20',
+            '20 ~ 30',
+            '30 ~ 40',
+            '40 ~ 50',
+            '50 ~ 60',
+            '60 ~ 70',
+            '70 ~ 80',
+            '> 80'
+        ]
+
+        for i in range(self.errType):
+            fig, ax = plt.subplots(figsize = [20, 10])
+            plt.bar(np.arange(self.semanType), self.computed_metric[i, :])
+            plt.xticks(np.arange(self.semanType), self.semanName)
+            plt.ylabel(self.entryName[i])
+            plt.title('Metric of ' + self.entryName[i])
+            for j in range(self.semanType):
+                ax.text(x=np.arange(self.semanType)[j] - 0.25, y=self.computed_metric[i, j] + np.max(self.computed_metric[i, :]) * 0.01, s=str(np.around(self.computed_metric[i, j], decimals=3)))
+            plt.savefig(str(i) + ".png")
+            plt.close()
+
+        for i in range(self.errType):
+            fig, ax = plt.subplots(figsize=[20, 10])
+            plt.bar(np.arange(self.distanceBins.shape[0]), self.computed_metric_dist[i, :-1])
+            plt.xticks(np.arange(self.distanceBins.shape[0]), self.distEntry[:-1])
+            plt.ylabel(self.entryName[i])
+            plt.title('Metric of ' + self.entryName[i])
+            for j in range(len(self.distEntry) - 1):
+                ax.text(x=np.arange(len(self.distEntry))[j] - 0.1, y=self.computed_metric_dist[i, j] + np.max(self.computed_metric_dist[i, :]) * 0.01, s=str(np.around(self.computed_metric_dist[i, j], decimals=3)))
+            plt.savefig(str(i +9) + ".png")
+            plt.close()
+
+        self.totLoss = np.zeros(self.errType)
+        for i in range(self.errType):
+            if i == 0:
+                self.totLoss[i] = np.sum(self.errCount[i, :, 0]) / np.sum(self.errCount[i, :, 1] + 1e-10)
+            if i == 1:
+                self.totLoss[i] = np.sum(self.errCount[i, :, 0]) / np.sum(self.errCount[i, :, 1] + 1e-10)
+            if i == 2:
+                self.totLoss[i] = np.sum(self.errCount[i, :, 0]) / np.sum(self.errCount[i, :, 1] + 1e-10)
+            if i == 3:
+                self.totLoss[i] = np.sqrt(np.sum(self.errCount[i, :, 0]) / np.sum(self.errCount[i, :, 1] + 1e-10))
+            if i == 4:
+                self.totLoss[i] = np.sqrt(np.sum(self.errCount[i, :, 0]) / np.sum(self.errCount[i, :, 1] + 1e-10))
+            if i == 5:
+                self.totLoss[i] = np.sum(self.errCount[i, :, 0]) / np.sum(self.errCount[i, :, 1] + 1e-10)
+            if i== 6:
+                self.totLoss[i] = np.sum(self.errCount[i, :, 0]) / np.sum(self.errCount[i, :, 1] + 1e-10)
+            if i == 7:
+                self.totLoss[i] = np.sum(self.errCount[i, :, 0]) / np.sum(self.errCount[i, :, 1] + 1e-10)
+            if i == 8:
+                self.totLoss[i] = np.sum(self.errCount[i, :, 0]) / (np.sum(self.errCount[i, :, 1]) + 1e-10) - np.sum(self.errCount[i+1, :, 0]) ** 2 / (np.sum(self.errCount[i+1, :, 1]) ** 2 + 1e-10)
+
+        for i in range(self.errType):
+            print("%s: %f" % (self.entryName[i], self.totLoss[i]))
+
+
+        self.totLoss = np.zeros(self.errType)
+        for i in range(self.errType):
+            if i == 0:
+                self.totLoss[i] = np.sum(self.errDistCount[i, :, 0]) / np.sum(self.errDistCount[i, :, 1] + 1e-10)
+            if i == 1:
+                self.totLoss[i] = np.sum(self.errDistCount[i, :, 0]) / np.sum(self.errDistCount[i, :, 1] + 1e-10)
+            if i == 2:
+                self.totLoss[i] = np.sum(self.errDistCount[i, :, 0]) / np.sum(self.errDistCount[i, :, 1] + 1e-10)
+            if i == 3:
+                self.totLoss[i] = np.sqrt(np.sum(self.errDistCount[i, :, 0]) / np.sum(self.errDistCount[i, :, 1] + 1e-10))
+            if i == 4:
+                self.totLoss[i] = np.sqrt(np.sum(self.errDistCount[i, :, 0]) / np.sum(self.errDistCount[i, :, 1] + 1e-10))
+            if i == 5:
+                self.totLoss[i] = np.sum(self.errDistCount[i, :, 0]) / np.sum(self.errDistCount[i, :, 1] + 1e-10)
+            if i== 6:
+                self.totLoss[i] = np.sum(self.errDistCount[i, :, 0]) / np.sum(self.errDistCount[i, :, 1] + 1e-10)
+            if i == 7:
+                self.totLoss[i] = np.sum(self.errDistCount[i, :, 0]) / np.sum(self.errDistCount[i, :, 1] + 1e-10)
+            if i == 8:
+                self.totLoss[i] = np.sum(self.errDistCount[i, :, 0]) / (np.sum(self.errDistCount[i, :, 1]) + 1e-10) - np.sum(self.errDistCount[i+1, :, 0]) ** 2 / (np.sum(self.errDistCount[i+1, :, 1]) ** 2 + 1e-10)
+
+        for i in range(self.errType):
+            print("%s: %f" % (self.entryName[i], self.totLoss[i]))
 
     def getMetric(self):
         print("aveErrOnBorder %f" % (self.onborderErr / self.onborderNum))
@@ -402,12 +638,13 @@ def evaluate(opt):
     viewRandomSample = False
     viewSemanReg = False
     viewErr = True
-    isComputeErrBorder = False
+    isComputeErrBorder = True
+    isDoErrStatistics = True
     height = 288
     width = 960
     tensor23dPts = Tensor23dPts(height=height, width=width)
 
-    if isComputeErrBorder:
+    if isComputeErrBorder or isDoErrStatistics:
         compErrBorder = ComputeErrOnBorder()
         compErrBorder.cuda()
 
@@ -462,6 +699,8 @@ def evaluate(opt):
     #     borderSim.cuda()
     with torch.no_grad():
         for idx, inputs in enumerate(dataloader):
+            # if idx >= 10:
+            #     break
             for key, ipt in inputs.items():
                 if not(key == 'height' or key == 'width' or key == 'tag' or key == 'cts_meta'):
                     inputs[key] = ipt.to(torch.device("cuda"))
@@ -490,12 +729,16 @@ def evaluate(opt):
                 dispMap = outputs[('disp', 0)]
                 scaled_disp, depthMap = disp_to_depth(dispMap, 0.1, 100)
                 depthMap = depthMap * STEREO_SCALE_FACTOR
+                depthMap = torch.clamp(depthMap, max=80)
                 # _, mul_depthMap = disp_to_depth(outputs[('mul_disp', 0)], 0.1, 100)
                 # mul_depthMap = mul_depthMap * STEREO_SCALE_FACTOR
                 if viewErr:
                     errFig, errMap, errMask = viewerr.viewErr(est=depthMap, gt=inputs["depth_gt"], viewInd=index)
                     if isComputeErrBorder:
                         compErrBorder(inputs['seman_gt_eval'].unsqueeze(0), errMap, errMask)
+
+                if isDoErrStatistics:
+                    compErrBorder.do_err_statistics(inputs['seman_gt_eval'].unsqueeze(0), depthMap, inputs["depth_gt"])
 
                 if viewDispUp:
                     fig_dispup = compDispUp.visualize(scaled_disp, viewindex=index)
@@ -764,6 +1007,8 @@ def evaluate(opt):
                 print("%dth saved" % idx)
     if isComputeErrBorder:
         compErrBorder.getMetric()
+    if isDoErrStatistics:
+        compErrBorder.getMetric_semanwise()
     # If compute the histogram
 
     if isHist:

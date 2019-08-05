@@ -22,7 +22,6 @@ class KITTIDataset(SingleDataset):
     """
     def __init__(self, *args, **kwargs):
         super(KITTIDataset, self).__init__(*args, **kwargs)
-
         # self.K = np.array([[0.58, 0, 0.5, 0],
         #                    [0, 1.92, 0.5, 0],
         #                    [0, 0, 1, 0],
@@ -130,7 +129,6 @@ class KITTIDataset(SingleDataset):
         # miny = ptsprojected[:, 1].min()
         # maxy = ptsprojected[:, 1].max()
         # P_rect @ R_cam2rect @ velo2cam - (realIn @ realEx)[0:3,:]
-        # camK - (realIn @ realEx)
         return camK, invcamK, realIn, realEx, velo
 
 class KITTIRAWDataset(KITTIDataset):
@@ -171,8 +169,8 @@ class KITTIRAWDataset(KITTIDataset):
         return depth_gt
 
     def get_seman(self, folder, do_flip, frame_index):
-        semanFolder = '/media/shengjie/other/sceneUnderstanding/monodepth2/kitti_data/kitti_semantics/training/semantic'
         if self.load_meta:
+            semanFolder = '/media/shengjie/other/sceneUnderstanding/monodepth2/kitti_data/kitti_semantics/training/semantic'
             mappedLkKey = folder.split('/')
             mappedLkKey = mappedLkKey[0] + ' ' + mappedLkKey[1] + ' ' + str(frame_index).zfill(10)
             isFind = False
@@ -198,10 +196,12 @@ class KITTIRAWDataset(KITTIDataset):
             else:
                 return None, None
         else:
+            predicted_semantic_label_path = folder
+            print(folder)
             return None, None
 
-    def check_seman(self):
-        return True
+    # def check_seman(self):
+    #     return True
 
 class KITTIOdomDataset(KITTIDataset):
     """KITTI dataset for odometry training and testing

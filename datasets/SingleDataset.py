@@ -91,7 +91,8 @@ class SingleDataset(data.Dataset):
                                                interpolation=self.interp)
 
         self.load_depth = self.check_depth()
-        self.load_seman = self.check_seman()
+        self.load_seman = True
+        # self.load_seman = self.check_seman()
 
     def preprocess(self, inputs, color_aug):
         """Resize colour images to the required scales and augment if required
@@ -313,10 +314,10 @@ class SingleDataset(data.Dataset):
         inputs["tag"] = self.tag # final image tags
         camK, invcamK, realIn, realEx, velo = self.get_camK(folder, frame_index)
 
-        inputs["camK"] = camK # Intrinsic by extrinsic
-        inputs["invcamK"] = invcamK # inverse of Intrinsic by extrinsic
-        inputs["realIn"] = realIn # Intrinsic
-        inputs["realEx"] = realEx # Extrinsic, possibly edited to form in accordance with kitti
+        inputs["camK"] = torch.from_numpy(camK).float() # Intrinsic by extrinsic
+        inputs["invcamK"] = torch.from_numpy(invcamK).float() # inverse of Intrinsic by extrinsic
+        inputs["realIn"] = torch.from_numpy(realIn).float() # Intrinsic
+        inputs["realEx"] = torch.from_numpy(realEx).float() # Extrinsic, possibly edited to form in accordance with kitti
         if velo is not None:
             inputs["velo"] = velo
         return inputs
@@ -339,8 +340,8 @@ class SingleDataset(data.Dataset):
     def get_seman(self, folder, do_flip, frame_index):
         raise NotImplementedError
 
-    def check_seman(self):
-        raise NotImplementedError
+    # def check_seman(self):
+    #     raise NotImplementedError
 
     def check_cityscape_meta(self):
         raise NotImplementedError

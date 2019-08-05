@@ -451,6 +451,23 @@ class Trainer:
                 padding_mode="border")
 
             outputs[("disp", scale)] = disp
+            if scale == 0:
+                outputs[("real_scale_disp", scale)] = scaledDisp * (torch.abs(inputs[("K", source_scale)][:, 0, 0] * T[:, 0, 3]).view(self.opt.batch_size, 1, 1, 1).expand_as(scaledDisp))
+                # biasx = scaledDisp * ((inputs[("K", source_scale)][:, 0, 0] * T[:, 0, 3]).view(self.opt.batch_size, 1, 1, 1).expand_as(scaledDisp))
+                # sampedPixel = self.backproject_depth[(tag, source_scale)].pix_coords.clone()[:,0:2,:]
+                # sampedPixel[:,0, :] = sampedPixel[:,0] + biasx.view(self.opt.batch_size, -1)
+                # sampedPixel = sampedPixel.view(self.opt.batch_size, 2, self.opt.height, self.opt.width).permute(0,2,3,1)
+                # sampedPixel[..., 0] /= self.opt.width - 1
+                # sampedPixel[..., 1] /= self.opt.height - 1
+                # sampedPixel = (sampedPixel - 0.5) * 2
+                # compareSampling = F.grid_sample(inputs[("color", frame_id, source_scale)], sampedPixel, padding_mode="border")
+                # print(torch.sum(torch.abs(compareSampling - outputs[("color", frame_id, scale)])))
+                # viewInd = 0
+                # viewCompare = compareSampling[viewInd, :, :,].permute(1, 2, 0).detach().cpu().numpy()
+                # viewCompare = (viewCompare * 255).astype(np.uint8)
+                # pil.fromarray(viewCompare).show()
+
+
             # if self.opt.isMulReg:
             #     outputs['surfacenorm'] = self.compsurfnorm[tag](depth * self.STEREO_SCALE_FACTOR)
 
@@ -470,16 +487,16 @@ class Trainer:
             #         padding_mode="border")
 
             # Check:
-            # depth = T[0,0,3] * inputs[("K", source_scale)][0,0,0] / scaledDisp
-            # ones = nn.Parameter(torch.ones(10, 1, 256 * 512)).cuda()
+            # scaledDisp, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
+            # ones = nn.Parameter(torch.ones(8, 1, 288 * 960)).cuda()
             # inv_K = inputs[("inv_K", source_scale)]
             # org_pix_coords = self.backproject_depth[(tag, source_scale)].pix_coords
             # cam_points = torch.matmul(inv_K[:, :3, :3], org_pix_coords)
-            # cam_points = depth.view(10, 1, -1) * cam_points
+            # cam_points = depth.view(8, 1, -1) * cam_points
             # cam_points = torch.cat([cam_points, ones], 1)
-            #
+
             # org_pix_coords = org_pix_coords[:,0:2,:]
-            #
+
             # K = inputs[("K", source_scale)]
             # T = T
             # P = torch.matmul(K, T)[:, :3, :]
@@ -487,9 +504,9 @@ class Trainer:
             # eps = 1e-7
             # pix_coords = cam_points[:, :2, :] / (cam_points[:, 2, :].unsqueeze(1) + eps)
             # bias = (pix_coords - org_pix_coords)[:,0,:]
-            # ratio = bias / scaledDisp[:,0,:,:].view(10,-1)
-            # var = torch.mean(torch.abs(bias - scaledDisp[:,0,:,:].view(10,-1)))
-            #
+            # ratio = bias / (scaledDisp[:,0,:,:].view(8,-1) * (K[:,0,0] * T[:, 0, 3]).unsqueeze(1).expand(-1, 276480))
+            # var = torch.mean(torch.abs(bias - scaledDisp[:,0,:,:].view(8,-1)))
+
             # visualize_outpu(inputs, outputs, '/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/recon_rg_img/kitti', np.random.randint(0, 100000, 1)[0])
             # if not self.opt.disable_automasking:
             #     outputs[("color_identity", frame_id, scale)] = \
@@ -523,8 +540,9 @@ class Trainer:
             # width = target.shape[3]
             if self.opt.selfocclu:
                 # expand = torch.nn.MaxPool2d(kernel_size=5, padding=2, stride=1).cuda()
-                sourceSSIMMask = self.selfOccluMask(outputs[('disp', source_scale)], inputs['stereo_T'][:,0,3])
-                outputs['ssimMask'] = sourceSSIMMask
+                # sourceSSIMMask = self.selfOccluMask(outputs[('disp', source_scale)], inputs['stereo_T'][:,0,3])
+                # self.selfOccluMask.visualize(outputs[('real_scale_disp', source_scale)])
+                sourceSSIMMask = self.selfOccluMask(outputs[('real_scale_disp', source_scale)], inputs['stereo_T'][:, 0, 3])
                 # sourceSSIMMask = expand(sourceSSIMMask)
                 # Check
                 # viewind = 0
@@ -535,6 +553,25 @@ class Trainer:
                 # pil.fromarray(viewSSIMMask).show()
                 # viewSSIMMask, viewSSIMMask_opp = self.selfOccluMask.visualize(outputs[('disp', source_scale)], viewind=0)
 
+                if 'seman_gt' in inputs and self.opt.borderSemanReg:
+                    wallTypeMask = torch.ones(outputs[('disp', source_scale)].shape, device=self.tDevice).byte()
+                    roadTypeMask = torch.ones(outputs[('disp', source_scale)].shape, device=self.tDevice).byte()
+                    foreGroundMask = torch.ones(outputs[('disp', source_scale)].shape, device=self.tDevice).byte()
+                    with torch.no_grad():
+                        for m in self.wallType:
+                            wallTypeMask = wallTypeMask * (inputs['seman_gt'] != m)
+                        wallTypeMask = (1 - wallTypeMask).float()
+
+                        for m in self.roadType:
+                            roadTypeMask = roadTypeMask * (inputs['seman_gt'] != m)
+                        roadTypeMask = (1 - roadTypeMask).float()
+
+                        for m in self.foregroundType:
+                            foreGroundMask = foreGroundMask * (inputs['seman_gt'] != m)
+                        foreGroundMask = (1 - foreGroundMask).float()
+                        sourceSSIMMask = self.selfOccluMask.betterSelfOccluMask(sourceSSIMMask, foreGroundMask, bsline=inputs['stereo_T'][:, 0, 3], dispPred=outputs['disp', source_scale])
+                outputs['ssimMask'] = sourceSSIMMask
+
             for scale in self.opt.scales:
                 reprojection_losses = []
                 # disp = outputs[("disp", scale)]
@@ -543,6 +580,88 @@ class Trainer:
                 for frame_id in self.opt.frame_ids[1:]:
                     pred = outputs[("color", frame_id, scale)]
                     reprojection_losses.append(self.compute_reprojection_loss(pred, target))
+                    # check:
+                    # if scale == 0:
+                    #     abs_diff = torch.abs(target - pred)
+                    #
+                    #     dispAct = outputs['disp', 0]
+                    #     cm = plt.get_cmap('magma')
+                    #     viewInd = 0
+                    #     visualizeDispAct = dispAct[viewInd, 0, :, :].detach().cpu().numpy()
+                    #     vmax = np.percentile(visualizeDispAct, 95)
+                    #     visualizeDispAct = (cm(visualizeDispAct / vmax) * 255).astype(np.uint8)
+                    #
+                    #     cm = plt.get_cmap('magma')
+                    #     viewInd = 0
+                    #     visualizePhotometricLoss = self.ssim(pred, target)
+                    #     visualizePhotometricLoss = torch.mean(visualizePhotometricLoss, dim=1, keepdim=True)
+                    #     visualizePhotometricLoss = visualizePhotometricLoss[viewInd, 0, :, :].detach().cpu().numpy()
+                    #     vmax = np.percentile(visualizePhotometricLoss, 99.9)
+                    #     visualizePhotometricLoss = (cm(visualizePhotometricLoss / vmax) * 255).astype(np.uint8)
+                    #     pil.fromarray(visualizePhotometricLoss).show()
+                    #
+                    #     cm = plt.get_cmap('magma')
+                    #     viewInd = 0
+                    #     visualizePhotometricLoss = abs_diff
+                    #     visualizePhotometricLoss = torch.mean(visualizePhotometricLoss, dim=1, keepdim=True)
+                    #     visualizePhotometricLoss = visualizePhotometricLoss[viewInd, 0, :, :].detach().cpu().numpy()
+                    #     vmax = np.percentile(visualizePhotometricLoss, 99.9)
+                    #     visualizePhotometricLoss = (cm(visualizePhotometricLoss / vmax) * 255).astype(np.uint8)
+                    #     pil.fromarray(visualizePhotometricLoss).show()
+                    #
+                    #     predView = pred[viewInd, :, :, :].permute(1, 2, 0).detach().cpu().numpy()
+                    #     predView = (predView * 255).astype(np.uint8)
+                    #     pil.fromarray(predView).show()
+                    #
+                    #     targetView = target[viewInd, :, :, :].permute(1, 2, 0).detach().cpu().numpy()
+                    #     targetView = (targetView * 255).astype(np.uint8)
+                    #     pil.fromarray(targetView).show()
+                    #
+                    #     sourceView = inputs[('color_aug', 's', 0)][viewInd, :, :, :].permute(1, 2, 0).detach().cpu().numpy()
+                    #     sourceView = (sourceView * 255).astype(np.uint8)
+                    #     pil.fromarray(sourceView).show()
+                    #
+                    #     target_disp_overlay = targetView * 0.5 + visualizeDispAct[:,:,0:3] * 0.5
+                    #     target_disp_overlay = (target_disp_overlay).astype(np.uint8)
+                    #
+                    #
+                    #     show = np.concatenate([predView, targetView, target_disp_overlay, sourceView], axis= 0 )
+                    #     pil.fromarray(show).show()
+                    #
+                    #     gaussKernel = get_gaussian_kernel_weights(kernel_size=3, sigma=2)
+                    #     gaussConv = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, bias=False)
+                    #     gaussConv.weight = nn.Parameter(gaussKernel, requires_grad=False)
+                    #     gaussConv = gaussConv.cuda()
+                    #
+                    #     visualizePhotometricLoss = self.ssim(pred, target)
+                    #     visualizePhotometricLoss = torch.mean(visualizePhotometricLoss, dim=1, keepdim=True)
+                    #     visualizePhotometricLoss = gaussConv(visualizePhotometricLoss)
+                    #     visualizePhotometricLoss = visualizePhotometricLoss[viewInd, 0, :, :].detach().cpu().numpy()
+                    #     vmax = np.percentile(visualizePhotometricLoss, 99.9)
+                    #     visualizePhotometricLoss = (cm(visualizePhotometricLoss / vmax) * 255).astype(np.uint8)
+                    #     pil.fromarray(visualizePhotometricLoss).show()
+                    #
+                    #     visualizePhotometricLoss = torch.mean(abs_diff, dim=1, keepdim=True)
+                    #     visualizePhotometricLoss = gaussConv(visualizePhotometricLoss)
+                    #     visualizePhotometricLoss = visualizePhotometricLoss[viewInd, 0, :, :].detach().cpu().numpy()
+                    #     vmax = np.percentile(visualizePhotometricLoss, 99.9)
+                    #     visualizePhotometricLoss = (cm(visualizePhotometricLoss / vmax) * 255).astype(np.uint8)
+                    #     pil.fromarray(visualizePhotometricLoss).show()
+                    #
+                    #
+                    #     if self.opt.selfocclu:
+                    #             cm = plt.get_cmap('magma')
+                    #             viewSSIMMask = sourceSSIMMask[viewInd, 0, :, :].detach().cpu().numpy()
+                    #             vmax = np.percentile(viewSSIMMask, 95)
+                    #             viewSSIMMask = (cm(viewSSIMMask / vmax) * 255).astype(np.uint8)
+                    #             pil.fromarray(viewSSIMMask).show()
+                    #
+                    #             predict_makeUp = pred * (1-sourceSSIMMask).expand(-1,3,-1,-1) + target * sourceSSIMMask.expand(-1,3,-1,-1)
+                    #             predict_makeUp_view = predict_makeUp[viewInd, :, :, :].permute(1, 2, 0).detach().cpu().numpy()
+                    #             predict_makeUp_view = (predict_makeUp_view * 255).astype(np.uint8)
+                    #
+                    #             show2 = np.concatenate([viewSSIMMask[:,:,0:3], predict_makeUp_view, predView], axis=0)
+                    #             pil.fromarray(show2).show()
 
                 reprojection_losses = torch.cat(reprojection_losses, 1)
 
@@ -630,6 +749,15 @@ class Trainer:
 
                 if self.opt.selfocclu:
                     to_optimise = (1 - sourceSSIMMask.squeeze(1)) * to_optimise
+                    # to_optimise = (1 - (inputs['seman_gt'] == 8)).float() * to_optimise
+                    # viewMask = (1 - (inputs['seman_gt'] == 8)).float()
+                    # cm = plt.get_cmap('magma')
+                    # viewInd = 0
+                    # viewMask = viewMask[viewInd, 0, :, :].detach().cpu().numpy()
+                    # vmax = 1
+                    # viewMask = (cm(viewMask / vmax) * 255).astype(np.uint8)
+                    # pil.fromarray(viewMask).show()
+
                     # a, b = self.selfOccluMask.visualize(outputs[('disp', scale)])
                     # scaleSSIMMask = self.selfOccluMask(outputs[('disp', scale)])
                     # dispupMap = self.dispupLoss(outputs[('disp', scale)])
@@ -653,6 +781,7 @@ class Trainer:
                 losses["loss_depth/{}".format(scale)] = ssimLoss
 
                 if self.opt.mulReg and ('seman_gt' in inputs or ('seman', source_scale) in outputs):
+                    # self.compsurfnorm[tag].visualize(depthMap = outputs[('depth', 0, scale)], invcamK = inputs['invcamK'])
                     surnormMap = self.compsurfnorm[tag](depthMap = outputs[('depth', 0, scale)], invcamK = inputs['invcamK'])
 
                     skyMask = inputs['seman_gt'] == self.skyId
@@ -754,24 +883,14 @@ class Trainer:
 
                 if self.opt.borderSemanReg:
                     if 'seman_gt' in inputs:
-                        wallTypeMask = torch.ones(outputs[('disp', scale)].shape, device=self.tDevice).byte()
-                        roadTypeMask = torch.ones(outputs[('disp', scale)].shape, device=self.tDevice).byte()
-                        foreGroundMask = torch.ones(outputs[('disp', scale)].shape, device=self.tDevice).byte()
-
-                        with torch.no_grad():
-                            for m in self.wallType:
-                                wallTypeMask = wallTypeMask * (inputs['seman_gt'] != m)
-                            wallTypeMask = (1 - wallTypeMask).float()
-
-                            for m in self.roadType:
-                                roadTypeMask = roadTypeMask * (inputs['seman_gt'] != m)
-                            roadTypeMask = (1 - roadTypeMask).float()
-
-                            for m in self.foregroundType:
-                                foreGroundMask = foreGroundMask * (inputs['seman_gt'] != m)
-                            foreGroundMask = (1 - foreGroundMask).float()
-                        # if scale == 2:
-                        #     self.borderSemanReg.visualizeDepthGuess(realDepth=outputs[('depth', 0, scale)] * self.STEREO_SCALE_FACTOR, dispAct=outputs[('disp', scale)], foredgroundMask = foreGroundMask, wallTypeMask=wallTypeMask, groundTypeMask=roadTypeMask, intrinsic= inputs['realIn'], extrinsic=inputs['realEx'], semantic = inputs['seman_gt_eval'], cts_meta = inputs['cts_meta'], viewInd=0)
+                        # if scale == 0:
+                            # self.borderSemanReg.visualizeDepthGuess(realDepth=outputs[('depth', 0, scale)] * self.STEREO_SCALE_FACTOR, dispAct=outputs[('disp', scale)], foredgroundMask = foreGroundMask, wallTypeMask=wallTypeMask, groundTypeMask=roadTypeMask, intrinsic= inputs['realIn'], extrinsic=inputs['realEx'], semantic = inputs['seman_gt_eval'], cts_meta = inputs['cts_meta'], viewInd=0)
+                            # self.borderSemanReg[inputs['tag'][0]].visualizeDepthGuess(
+                            #     realDepth=outputs[('depth', 0, scale)] * self.STEREO_SCALE_FACTOR,
+                            #     dispAct=outputs[('disp', scale)], foredgroundMask=foreGroundMask,
+                            #     wallTypeMask=wallTypeMask, groundTypeMask=roadTypeMask, intrinsic=inputs['realIn'],
+                            #     extrinsic=inputs['realEx'], semantic=inputs['seman_gt_eval'],
+                            #     cts_meta=None, viewInd=0)
                         lossRoad, lossWall = self.borderSemanReg[inputs['tag'][0]].regBySeman(realDepth=outputs[('depth', 0, scale)] * self.STEREO_SCALE_FACTOR, dispAct=outputs[('disp', scale)], foredgroundMask = foreGroundMask, wallTypeMask=wallTypeMask, groundTypeMask=roadTypeMask, intrinsic= inputs['realIn'], extrinsic=inputs['realEx'])
                         # loss = loss + (lossRoad * 0 + lossWall * 1) * self.opt.borderSemanRegScale
                         loss = loss + (lossRoad * 0.5 * 0.5 * self.opt.borderSemanRegScale_Road + lossWall * 0.5 * self.opt.borderSemanRegScale_Wall)

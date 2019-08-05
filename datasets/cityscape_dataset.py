@@ -155,8 +155,8 @@ class CITYSCAPEDataset(SingleDataset):
         else:
             return None, None
 
-    def check_seman(self):
-        return True
+    # def check_seman(self):
+    #     return True
 
     def process_InExParam2Matr(self, intr, extr, xscale = 1, yscale = 1):
         intrinsic = np.eye(3)

@@ -96,7 +96,7 @@ class MonodepthOptions:
                                  action="store_true"
                                  )
         self.parser.add_argument("--load_meta",
-                                 help="load meta data",
+                                 help="load meta data, for cityscape load gt depth, for kitti load semantics data if have",
                                  action="store_true"
                                  )
         self.parser.add_argument("--val_frequency",
