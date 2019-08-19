@@ -16,7 +16,7 @@ from .SingleDataset import SingleDataset
 from kitti_utils import read_calib_file, load_velodyne_points
 from cityscapesscripts.helpers.labels import labels
 from torchvision import transforms
-
+from utils import visualize_semantic
 class KITTIDataset(SingleDataset):
     """Superclass for different types of KITTI dataset loaders
     """
@@ -31,6 +31,8 @@ class KITTIDataset(SingleDataset):
         self.full_res_shape = (1242, 375)
         self.side_map = {"2": 2, "3": 3, "l": 2, "r": 3}
         self.mask = None # Cityscape requires mask
+        self.seman_resize = transforms.Resize((self.height, self.width),
+                                               interpolation=pil.NEAREST)
 
     def check_depth(self):
         line = self.filenames[0].split()
@@ -168,7 +170,7 @@ class KITTIRAWDataset(KITTIDataset):
 
         return depth_gt
 
-    def get_seman(self, folder, do_flip, frame_index):
+    def get_seman(self, folder, frame_index, side, do_flip):
         if self.load_meta:
             semanFolder = '/media/shengjie/other/sceneUnderstanding/monodepth2/kitti_data/kitti_semantics/training/semantic'
             mappedLkKey = folder.split('/')
@@ -196,9 +198,22 @@ class KITTIRAWDataset(KITTIDataset):
             else:
                 return None, None
         else:
-            predicted_semantic_label_path = folder
-            print(folder)
-            return None, None
+            folder = '2011_10_03/2011_10_03_drive_0034_sync'
+            side = 'l'
+            frame_index = 29
+            rgb_path = self.get_image_path(folder, frame_index, side)
+            if 'image_03' in rgb_path:
+                semantic_label_path = rgb_path.replace('image_03/data', 'semantic_prediction/image_03')
+            elif 'image_02' in rgb_path:
+                semantic_label_path = rgb_path.replace('image_02/data', 'semantic_prediction/image_02')
+            semantic_label = pil.open(semantic_label_path)
+            if do_flip:
+                semantic_label = semantic_label.transpose(pil.FLIP_LEFT_RIGHT)
+            semantic_label_copy = np.array(semantic_label.copy())
+            for k in np.unique(semantic_label):
+                semantic_label_copy[semantic_label_copy == k] = labels[k].trainId
+            # visualize_semantic(semantic_label_copy)
+            return semantic_label_copy, None
 
     # def check_seman(self):
     #     return True

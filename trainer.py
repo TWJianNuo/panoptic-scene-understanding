@@ -341,46 +341,14 @@ class Trainer:
         label = inputs['seman_gt'].permute(0,2,3,1)[i,:,:,0].cpu().numpy()
         visualize_semantic(label).show()
         """
-
-        # start_decoder = torch.cuda.Event(enable_timing=True)
-        # end_decoder = torch.cuda.Event(enable_timing=True)
-        # Switch between semantic and depth estimation
-        # start_decoder.record()
         outputs = dict()
         if not self.opt.banSemantic:
             outputs.update(self.models["depth"](features, computeSemantic = True, computeDepth = False))
         if not self.opt.banDepth:
             outputs.update(self.models["depth"](features, computeSemantic = False, computeDepth = True))
-        # end_decoder.record()
-        # torch.cuda.synchronize()
-        # self.timeSpan_decoder = self.timeSpan_decoder + start_decoder.elapsed_time(end_decoder)
-
-        # start_merge = torch.cuda.Event(enable_timing=True)
-        # end_merge = torch.cuda.Event(enable_timing=True)
-        # start_merge.record()
         self.merge_multDisp(inputs, outputs)
-        # end_merge.record()
-        # torch.cuda.synchronize()
-        # self.timeSpan_mergeLayer = self.timeSpan_mergeLayer + start_merge.elapsed_time(end_merge)
-
-        # start_predict = torch.cuda.Event(enable_timing=True)
-        # end_predict = torch.cuda.Event(enable_timing=True)
-        # start_predict.record()
         self.generate_images_pred(inputs, outputs)
-        # end_predict.record()
-        # torch.cuda.synchronize()
-        # self.timeSpan_predict = self.timeSpan_predict + start_predict.elapsed_time(end_predict)
-
-        # start_loss = torch.cuda.Event(enable_timing=True)
-        # end_loss = torch.cuda.Event(enable_timing=True)
-        # start_loss.record()
         losses = self.compute_losses(inputs, outputs)
-        # end_loss.record()
-        # torch.cuda.synchronize()
-        # self.timeSpan_loss = self.timeSpan_loss + start_loss.elapsed_time(end_loss)
-        # losses['loss'].backward()
-        # grad_sample =self.models['depth'].decoder[0].conv_pos.conv.weight.grad
-        # print(torch.sum(torch.abs(grad_sample)))
         return outputs, losses
     def is_regress_dispLoss(self, inputs, outputs):
         # if there are stereo images, we compute depth
@@ -1053,7 +1021,12 @@ class Trainer:
                 overlay = np.concatenate([overlay, viewmask[:, :, 0:3]],
                                          axis=0)
 
-            pil.fromarray(overlay).save("/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/trianReCompare/" + str(self.step) + ".png")
+            fig_predict = tensor2rgb(outputs[('color', 's', 0)], ind=0)
+            fig_target = tensor2rgb(inputs[('color', 0, 0)], ind=0)
+            fig_source = tensor2rgb(inputs[('color', 's', 0)], ind=0)
+            fig_combined = pil.fromarray(np.concatenate([np.array(fig_predict), np.array(fig_target), np.array(fig_source)], axis=0))
+            fig_combined.save("/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/trianReCompare/" + str(self.step) + ".png")
+            # pil.fromarray(overlay).save("/media/shengjie/other/sceneUnderstanding/monodepth2/internalRe/trianReCompare/" + str(self.step) + ".png")
             # for j in range(min(4, self.opt.batch_size)):
             #     for s in self.opt.scales:
             #         for frame_id in self.opt.frame_ids:

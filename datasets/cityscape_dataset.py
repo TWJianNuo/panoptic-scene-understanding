@@ -142,7 +142,7 @@ class CITYSCAPEDataset(SingleDataset):
         rescale_fac = cts_baseline / kitti_baseline
         return rescale_fac
 
-    def get_seman(self, folder, do_flip, frame_index = -1):
+    def get_seman(self, folder, frame_index, side, do_flip):
         if folder.split('/')[0] == 'train' or folder.split('/')[0] == 'val' or folder.split('/')[0] == 'train_extra':
             seman_path, ins_path = self.get_ins_seman_path(folder)
             color = self.loader(seman_path)

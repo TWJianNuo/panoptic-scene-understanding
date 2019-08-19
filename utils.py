@@ -342,3 +342,8 @@ def get_gaussian_kernel_weights(kernel_size=3, sigma=2):
     # gaussian_filter.weight.requires_grad = False
 
     return gaussian_kernel
+
+
+def tensor2rgb(tensor, ind):
+    slice = (tensor[ind, :, :, :].permute(1,2,0).detach().contiguous().cpu().numpy() * 255).astype(np.uint8)
+    return pil.fromarray(slice)
